@@ -1,6 +1,5 @@
 import numpy as np
 
-
 capacity = 1000000 # max size of the replay buffer (how many transactions you want to keep in memory)
 class ReplayBuffer():
     def __init__(self, max_size = capacity):
@@ -19,12 +18,12 @@ class ReplayBuffer():
         - option: optional int (for HRL/Option-Critic style buffers)
         """
         data = (
-            np.array(obs, copy=False),
-            np.array(next_obs, copy=False),
-            np.array(action, copy=False),
-            np.array(reward, copy=False),
-            np.array(done, copy=False),
-            option,
+        np.asarray(obs, dtype=np.float32),
+        np.asarray(next_obs, dtype=np.float32),
+        np.asarray(action, dtype=np.float32),
+        float(reward),
+        float(done),
+        option,
         )
 
         if len(self.storage) == self.max_size: # if buffer is full
@@ -50,11 +49,11 @@ class ReplayBuffer():
 
         for i in ind:
             st, n_st, act, rew, dn, opt = self.storage[i]
-            state.append(np.array(st, copy=False))
-            next_state.append(np.array(n_st, copy=False))
-            action.append(np.array(act, copy=False))
-            reward.append(np.array(rew, copy=False))
-            done.append(np.array(dn, copy=False))
+            state.append(st)
+            next_state.append(n_st)
+            action.append(act)
+            reward.append(rew)
+            done.append(dn)
             option.append(-1 if opt is None else int(opt))
 
         state = np.array(state, dtype=np.float32)
