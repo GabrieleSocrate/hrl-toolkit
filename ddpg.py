@@ -6,8 +6,9 @@ import torch.optim as optim
 from networks import Actor, Critic
 
 def soft_update(net, target_net, tau):
-    for p, p_targ in zip(net.parameters(), target_net.parameters()):
-        p_targ.data.copy_((1.0 - tau) * p_targ.data + tau * p.data)
+    with torch.no_grad():
+        for p, p_targ in zip(net.parameters(), target_net.parameters()):
+            p_targ.data.copy_((1.0 - tau) * p_targ.data + tau * p.data)
 
 class DDPG:
     def __init__(
