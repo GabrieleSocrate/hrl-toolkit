@@ -98,6 +98,7 @@ class TD3:
          
         policy_loss = []
         value_loss = []
+        did_actor_update = False # a flag to see if the actor has been updated or not in this iteration
 
         for it in range(update_iteration):
             state, next_state, action, reward, done, _ = replay_buffer.sample(batch_size)  # _ is option (unused now)
@@ -157,6 +158,7 @@ class TD3:
                 # actor loss 
                 actor_loss = -self.critic1(state, self.actor(state)).mean()
                 policy_loss.append(float(actor_loss.item()))
+                did_actor_update = True
 
                 # optimize actor
                 self.actor_opt.zero_grad()
@@ -169,6 +171,6 @@ class TD3:
                 soft_update(self.actor, self.actor_targ, self.tau)
 
         critic_loss_mean = float(np.mean(value_loss)) if len(value_loss) > 0 else 0.0
-        actor_loss_mean = float(np.mean(policy_loss)) if len(policy_loss) > 0 else 0.0
+        actor_loss_mean = float(np.mean(policy_loss)) if len(policy_loss) > 0 else None
 
-        return critic_loss_mean, actor_loss_mean
+        return critic_loss_mean, actor_loss_mean, did_actor_update
