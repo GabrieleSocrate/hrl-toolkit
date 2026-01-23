@@ -54,7 +54,7 @@ class DDPG:
         # loss
         self.mse = nn.MSELoss()
 
-    def act(self, obs, noise_std: float = 0.1):
+    def act(self, obs, noise_std = 0.1):
         with torch.no_grad(): # we are just choosing an action so no gradients are required
             if isinstance(obs, np.ndarray): # if obs is an array I convert it into a tensor
                 obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
