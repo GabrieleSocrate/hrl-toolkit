@@ -2,12 +2,16 @@ import numpy as np
 
 capacity = 1000000 # max size of the replay buffer (how many transactions you want to keep in memory)
 class ReplayBuffer():
+    """Replay bffer for standard RL transitions (DDPG/TD3) and HRL transitions with options
+    Stored transition:
+        (obs, next_obs, action, reward, done, option, terminated)"""
+    
     def __init__(self, max_size = capacity):
         self.storage = [] # every element (tuple) will be a transaction
         self.max_size = max_size
         self.ptr = 0 # pointer that points where to overwrite when the buffer is full
     
-    def push(self, obs, action, reward, next_obs, done, option = None):
+    def push(self, obs, action, reward, next_obs, done, option = None, terminated = None):
         """
         Store a transition.
         - obs: np.array shape (obs_dim,)
@@ -16,6 +20,7 @@ class ReplayBuffer():
         - next_obs: np.array shape (obs_dim,)
         - done: float or bool (1.0 if episode ended else 0.0)
         - option: optional int (for HRL/Option-Critic style buffers)
+        - terminated: optional bool/float (1.0 if option terminated due to beta at this step)
         """
         data = (
         np.asarray(obs, dtype=np.float32),
@@ -24,6 +29,7 @@ class ReplayBuffer():
         float(reward),
         float(done),
         option,
+        terminated
         )
 
         if len(self.storage) == self.max_size: # if buffer is full
@@ -42,19 +48,22 @@ class ReplayBuffer():
           reward:     (B, 1)
           done:       (B, 1)
           option:     (B,) int64 or None
+          terminated: (B, 1) 
         """
         ind = np.random.randint(0, len(self.storage), size=batch_size)
 
-        state, next_state, action, reward, done, option = [], [], [], [], [], []
+        state, next_state, action, reward, done = [], [], [], [], []
+        option_list, term_list = [], []
 
         for i in ind:
-            st, n_st, act, rew, dn, opt = self.storage[i]
+            st, n_st, act, rew, dn, opt, term = self.storage[i]
             state.append(st)
             next_state.append(n_st)
             action.append(act)
             reward.append(rew)
             done.append(dn)
-            option.append(-1 if opt is None else int(opt))
+            option_list.append(-1 if opt is None else int(opt))
+            term_list.append(-1.0 if term is None else float(term)) # even if terminated is binary event we keep it float for easier usage
 
         state = np.array(state, dtype=np.float32)
         next_state = np.array(next_state, dtype=np.float32)
@@ -62,11 +71,15 @@ class ReplayBuffer():
         reward = np.array(reward, dtype=np.float32).reshape(-1, 1)
         done = np.array(done, dtype=np.float32).reshape(-1, 1)
 
-        option = np.array(option, dtype=np.int64)
+        option = np.array(option_list, dtype=np.int64)
         if np.all(option == -1):
             option = None
+        
+        terminated = np.array(term_list, dtype = np.float32).reshape(-1, 1)
+        if np.all(terminated == -1.0):
+            terminated = None
 
-        return state, next_state, action, reward, done, option
+        return state, next_state, action, reward, done, option, terminated
 
     def __len__(self,):
         return len(self.storage)
