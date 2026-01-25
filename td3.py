@@ -101,7 +101,7 @@ class TD3:
         did_actor_update = False # a flag to see if the actor has been updated or not in this iteration
 
         for it in range(update_iteration):
-            state, next_state, action, reward, done, _ = replay_buffer.sample(batch_size)  # _ is option (unused now)
+            state, next_state, action, reward, done, _, _ = replay_buffer.sample(batch_size)  # _ is option and terminated that are useless here
 
             # to torch tensors
             state = torch.as_tensor(state, dtype=torch.float32, device=self.device)            # (B, obs_dim)

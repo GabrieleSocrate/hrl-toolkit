@@ -89,7 +89,7 @@ class DDPG:
 
         for it in range(update_iteration):
             # sample from buffer 
-            state, next_state, action, reward, done, _ = replay_buffer.sample(batch_size) # _ is for the option that I don't need now
+            state, next_state, action, reward, done, _, _ = replay_buffer.sample(batch_size) # _ is for the option and terminated that I don't need now
 
             # to torch tensors 
             state = torch.as_tensor(state, dtype=torch.float32, device=self.device) # (B, obs_dim)

@@ -16,13 +16,13 @@ class OptionAgent:
 
     def __init__(
         self,
-        obs_dim: int,
-        num_options: int,
+        obs_dim,
+        num_options,
         low_level_agent,
-        device: str = "cpu",
-        hidden: int = 256,
-        eps_option: float = 0.0,
-        terminate_deterministic: bool = False,
+        device = "cpu",
+        hidden = 256,
+        eps_option = 0.0,
+        terminate_deterministic = False,
     ):
         """
         obs_dim: state dimension
@@ -137,7 +137,7 @@ class OptionAgent:
             self.current_option = self.select_option(obs, greedy=False)
             self.num_option_switches += 1
 
-    def act(self, obs, noise_std=None, greedy_option: bool = False):
+    def act(self, obs, noise_std=None, greedy_option = False):
         """
         Choose action from low-level agent, but also considering option termination.
 
