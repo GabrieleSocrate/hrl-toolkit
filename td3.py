@@ -1,8 +1,10 @@
+# td3.py
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from utils import one_hot_option
 from networks import Actor, Critic
 
 
@@ -16,39 +18,48 @@ class TD3:
     """key differences with DDPG:
      1) Two critics(Q1, Q2): in TD3 we have two critics (Q1, Q2) and take min(Q1_target, Q2_target)
      2) Delayed policy update (the D in TD3): the critics are updated at every training step, but the actor
-     is updated only once every policy_delay critic updates. The reason is that the actor update depends on 
+     is updated only once every policy_delay critic updates. The reason is that the actor update depends on
      critic gradients; updating the actor too frequently while critics are still inaccurate/noisy can destabilize training.
      So TD3 lets the critics improve for a few steps before moving the actor
      3) Target policy smoothing: the target action a' used in the TD target is perturbed with small clipped noise"""
-    
+
     def __init__(
-            self,
-            obs_dim,
-            act_dim,
-            act_limit,
-            device = "cpu",
-            gamma = 0.99,
-            tau = 0.005,
-            actor_lr = 1e-3,
-            critic_lr = 1e-3,
-            hidden = 256,
-            policy_noise = 0.2,
-            noise_clip = 0.5,
-            policy_delay = 2
+        self,
+        obs_dim,
+        act_dim,
+        act_limit,
+        device="cpu",
+        gamma=0.99,
+        tau=0.005,
+        actor_lr=1e-3,
+        critic_lr=1e-3,
+        hidden=256,
+        policy_noise=0.2,
+        noise_clip=0.5,
+        policy_delay=2,
+        num_options=0
     ):
-        self.obs_dim = obs_dim
-        self.act_dim = act_dim
+        self.obs_dim = int(obs_dim)
+        self.act_dim = int(act_dim)
         self.act_limit = float(act_limit)
         self.device = torch.device(device)
-        self.gamma = gamma
-        self.tau = tau
-        self.policy_noise = policy_noise
-        self.noise_clip = noise_clip
-        self.policy_delay = policy_delay
+        self.gamma = float(gamma)
+        self.tau = float(tau)
+        self.policy_noise = float(policy_noise)
+        self.noise_clip = float(noise_clip)
+        self.policy_delay = int(policy_delay)
 
-        self.actor = Actor(obs_dim, act_dim, act_limit, hidden=hidden).to(self.device)
-        self.actor_targ = Actor(obs_dim, act_dim, act_limit, hidden=hidden).to(self.device)
+        self.num_options = int(num_options)
+        if self.num_options <= 0:
+            raise ValueError("MODE B requires num_options > 0")
 
+        # concatenate one_hot(option) to the state -> s_aug
+        self.obs_dim_aug = self.obs_dim + self.num_options
+
+        self.actor = Actor(self.obs_dim_aug, self.act_dim, self.act_limit, hidden=hidden).to(self.device)
+        # Actor takes s_aug = [s, one_hot(option)] and returns a continuous action
+
+        self.actor_targ = Actor(self.obs_dim_aug, self.act_dim, self.act_limit, hidden=hidden).to(self.device)
         self.actor_targ.load_state_dict(self.actor.state_dict())
 
         for p in self.actor_targ.parameters():
@@ -56,11 +67,11 @@ class TD3:
 
         # TD3 uses TWO critics to reduce overestimation bias:
         # in the target we take min(Q1, Q2).
-        self.critic1 = Critic(obs_dim, act_dim, hidden=hidden).to(self.device)
-        self.critic2 = Critic(obs_dim, act_dim, hidden=hidden).to(self.device)
+        self.critic1 = Critic(self.obs_dim_aug, self.act_dim, hidden=hidden).to(self.device)
+        self.critic2 = Critic(self.obs_dim_aug, self.act_dim, hidden=hidden).to(self.device)
 
-        self.critic1_targ = Critic(obs_dim, act_dim, hidden=hidden).to(self.device)
-        self.critic2_targ = Critic(obs_dim, act_dim, hidden=hidden).to(self.device)
+        self.critic1_targ = Critic(self.obs_dim_aug, self.act_dim, hidden=hidden).to(self.device)
+        self.critic2_targ = Critic(self.obs_dim_aug, self.act_dim, hidden=hidden).to(self.device)
 
         self.critic1_targ.load_state_dict(self.critic1.state_dict())
         self.critic2_targ.load_state_dict(self.critic2.state_dict())
@@ -78,12 +89,32 @@ class TD3:
 
         self._n_critic_updates = 0
 
-    def act(self, obs, noise_std):
+    def augment_obs(self, obs, option):
+        """
+        Concatenate the one-hot encoded option to the state.
+        """
+        if option is None:
+            raise ValueError("Error: there are no options")
+
+        if isinstance(obs, np.ndarray):
+            opt_oh = one_hot_option(int(option), self.num_options)  # (K,)
+            return np.concatenate([obs, opt_oh], axis=0)            # (obs_dim + K,)
+        else:
+            opt_oh = torch.as_tensor(
+                one_hot_option(int(option), self.num_options),
+                dtype=torch.float32,
+                device=obs.device
+            )
+            return torch.cat([obs, opt_oh], dim=0)
+
+    def act(self, obs, noise_std=0.1, option=None):
         with torch.no_grad():
-            if isinstance(obs, np.ndarray):
-                obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+            obs_aug = self.augment_obs(obs, option)
+
+            if isinstance(obs_aug, np.ndarray):
+                obs_t = torch.as_tensor(obs_aug, dtype=torch.float32, device=self.device).unsqueeze(0)
             else:
-                obs_t = obs.to(self.device).float().unsqueeze(0)
+                obs_t = obs_aug.to(self.device).float().unsqueeze(0)
 
             a = self.actor(obs_t).squeeze(0)
 
@@ -93,28 +124,54 @@ class TD3:
             a = torch.clamp(a, -self.act_limit, self.act_limit)
 
             return a.cpu().numpy()
-    
-    def update(self, replay_buffer, batch_size = 256, update_iteration = 1):
-         
+
+    def update(self, replay_buffer, batch_size=256, update_iteration=1):
+
         policy_loss = []
         value_loss = []
         did_actor_update = False # a flag to see if the actor has been updated or not in this iteration
 
         for it in range(update_iteration):
-            state, next_state, action, reward, done, _, _ = replay_buffer.sample(batch_size)  # _ is option and terminated that are useless here
+            state, next_state, action, reward, done, option, _ = replay_buffer.sample(batch_size)  # _ is terminated that is useless here
+
+            """Shapes returned by ReplayBuffer.sample (with batch_size = B):
+               state:      (B, obs_dim)
+               next_state: (B, obs_dim)
+               action:     (B, act_dim)
+               reward:     (B, 1)
+               done:       (B, 1)
+               option:     (B,)
+               _:          (B, 1) terminated (not used here)"""
+
+            if option is None:
+                raise ValueError("ReplayBuffer must return option in MODE B")
+
+            # Build opt_oh: (B, K)
+            opt_oh = np.stack([one_hot_option(int(o), self.num_options) for o in option], axis=0)  # (B, K)
+
+            """For each element o_i in option (i=1..B), one_hot_option(o_i, K) returns an array of shape (K,)
+            np.stack stacks B vectors (K,) into a matrix (B, K)
+            So now:
+            state:   (B, obs_dim)
+            opt_oh:  (B, K)
+            and we concatenate them to obtain the augmented state
+            -> state_aug: (B, obs_dim + K)"""
+
+            state_aug = np.concatenate([state, opt_oh], axis=1)            # (B, obs_dim + K)
+            next_state_aug = np.concatenate([next_state, opt_oh], axis=1)  # (B, obs_dim + K)
 
             # to torch tensors
-            state = torch.as_tensor(state, dtype=torch.float32, device=self.device)            # (B, obs_dim)
-            next_state = torch.as_tensor(next_state, dtype=torch.float32, device=self.device)  # (B, obs_dim)
-            action = torch.as_tensor(action, dtype=torch.float32, device=self.device)         # (B, act_dim)
-            reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)         # (B,1) or (B,)
-            done = torch.as_tensor(done, dtype=torch.float32, device=self.device)             # (B,1) or (B,)
+            state = torch.as_tensor(state_aug, dtype=torch.float32, device=self.device)            # (B, obs_dim + K)
+            next_state = torch.as_tensor(next_state_aug, dtype=torch.float32, device=self.device)  # (B, obs_dim + K)
+            action = torch.as_tensor(action, dtype=torch.float32, device=self.device)              # (B, act_dim)
+            reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)              # (B,1) or (B,)
+            done = torch.as_tensor(done, dtype=torch.float32, device=self.device)                  # (B,1) or (B,)
 
             with torch.no_grad():
                 next_action = self.actor_targ(next_state)
 
-                # TD3 difference: target policy smoothing 
-                # Add small clipped noise 
+                # TD3 difference: target policy smoothing
+                # Add small clipped noise
                 noise = self.policy_noise * torch.randn_like(next_action)
                 noise = torch.clamp(noise, -self.noise_clip, self.noise_clip)
                 next_action = next_action + noise
@@ -126,7 +183,7 @@ class TD3:
                 target_Q_next2 = self.critic2_targ(next_state, next_action)
                 target_Q_next = torch.min(target_Q_next1, target_Q_next2)
 
-                # Bellman target 
+                # Bellman target
                 target_Q = reward + self.gamma * (1.0 - done) * target_Q_next
 
             # current Q estimates (two critics)
@@ -150,12 +207,12 @@ class TD3:
             critic2_loss.backward()
             self.critic2_opt.step()
 
-            # TD3 difference: delayed actor 
+            # TD3 difference: delayed actor
             # Count critic updates; update actor only every policy_delay steps.
             self._n_critic_updates += 1
 
             if self._n_critic_updates % self.policy_delay == 0:
-                # actor loss 
+                # actor loss
                 actor_loss = -self.critic1(state, self.actor(state)).mean()
                 policy_loss.append(float(actor_loss.item()))
                 did_actor_update = True
@@ -165,7 +222,7 @@ class TD3:
                 actor_loss.backward()
                 self.actor_opt.step()
 
-                # soft update targets 
+                # soft update targets
                 soft_update(self.critic1, self.critic1_targ, self.tau)
                 soft_update(self.critic2, self.critic2_targ, self.tau)
                 soft_update(self.actor, self.actor_targ, self.tau)
