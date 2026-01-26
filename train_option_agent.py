@@ -8,7 +8,7 @@ from option_agent import OptionAgent
 
 """The structure of this file is very similar to other training file"""
 
-def get_noise_std(ep: int) -> float:
+def get_noise_std(ep):
     """At the beginning the noise will be high (exploration),
     then we decrease it (more exploitation)."""
     if ep < 1000:

@@ -25,3 +25,8 @@ def to_tensor(obs, device = None):
     if device is not None:
         t = t.to(device)
     return t
+
+def one_hot_option(option, num_options):
+    v = np.zeros(num_options, dtype = np.float32)
+    v[int(option)] = 1.0
+    return v
