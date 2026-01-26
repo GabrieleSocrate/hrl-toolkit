@@ -23,6 +23,7 @@ class OptionAgent:
         hidden = 256,
         eps_option = 0.0,
         terminate_deterministic = False,
+        min_option_steps = 1
     ):
         """
         obs_dim: state dimension
@@ -54,6 +55,8 @@ class OptionAgent:
 
         self.num_terminations = 0
         self.num_option_switches = 0
+
+        self.min_option_steps = min_option_steps
 
     def obs_to_torch(self, obs): 
         """
@@ -154,8 +157,10 @@ class OptionAgent:
 
         did_terminate = False
 
+        can_terminate = self.option_steps >= self.min_option_steps # allow termination only after min_option_steps
+
         # Check termination BEFORE selecting low-level action 
-        if self.should_terminate(obs, self.current_option): # it's true if the option terminated
+        if can_terminate and self.should_terminate(obs, self.current_option): # it's true if the option terminated and if the option lasted long enough
             did_terminate = True 
             self.num_terminations += 1
 

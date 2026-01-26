@@ -66,6 +66,7 @@ def train(args):
         hidden=args.hidden,
         eps_option=args.eps_option,
         terminate_deterministic=args.terminate_deterministic,
+        min_option_steps = args.min_option_steps
     )
 
     buffer = ReplayBuffer(max_size=args.buffer_size)
@@ -181,7 +182,9 @@ if __name__ == "__main__":
     p.add_argument("--eps_option", type=float, default=0.0)
     p.add_argument("--terminate_deterministic", action="store_true")
     p.add_argument("--log_every", type=int, default=2000)
-    p.add_argument("--print_actor_every", type=int, default=200)  
+    p.add_argument("--print_actor_every", type=int, default=200) 
+    p.add_argument("--min_option_steps", type=int, default=50) # each option has to last for at least 50 steps then it can be changed
+ 
 
     args = p.parse_args()
     train(args)
