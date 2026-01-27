@@ -169,7 +169,7 @@ class OptionAgent:
 
         # Low-level action 
         """PER ORA LA DECISIONE DELL'AZIONE LOW LEVEL NON DIPENDE DALL'OPZIONE IN CUI MI TROVO"""
-        action = self.low_level.act(obs, noise_std=noise_std)
+        action = self.low_level.act(obs, noise_std=noise_std, option = self.current_option)
 
         # Track option duration
         self.option_steps += 1

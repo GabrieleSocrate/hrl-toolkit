@@ -39,6 +39,7 @@ def train(args):
             actor_lr=args.actor_lr,
             critic_lr=args.critic_lr,
             hidden=args.hidden,
+            num_options = args.num_options
         )
     elif algo == "td3":
         low_level = TD3(
@@ -54,6 +55,7 @@ def train(args):
             policy_noise=args.policy_noise,
             noise_clip=args.noise_clip,
             policy_delay=args.policy_delay,
+            num_options = args.num_options
         )
     else:
         raise ValueError("--algo must be 'ddpg' or 'td3'")
