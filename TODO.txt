@@ -1,0 +1,14 @@
+1) implementare deliberation cost 
+2) no rete per scelta policy ma calcolo Q(s, o) per ciascuna opzione e poi pigreco = argmax(Q(s, o)), po calcoli advantage se negativo aumenta prob di terminazione.
+
+
+3) le opzioni sono il modo di comportarsi dell'agente (se si imparano) quindi non sono template di portafoglio ma modi di agire. PROBLEMA: in questo modo si è più vicini al trading e ci si allontana dal portfolio management.
+SOLUZIONE: determini tu le opzioni (non learnable) che sono dei template di portafoglio (pesi non delle singole stock ma struttura del portafoglio, tipo 60 azionario 40 obbligazionario...). Bisogna informarsi su come gli investitori passivi modificano il portafoglio (hanno come riferimento delle strutture di portafoglio? se si quelle sono le nostre opzioni).
+il low level qui sarebbe modificare i pesi in modo che il portafoglio corrente assomigli il più possibile a quello indicato dall'opzione.
+IL REWARD: sarebbe una combinazione tra il profitto ottenuto e la vicinanza del portafoglio corrente a quello indicato dall'opzione. 
+Se la distanza tra il portafoglio corrente e quello indicato è sotto una soglia allora il low level si ferma (è obbligato a non compiere nessuna azione, fai hard code per imporre questo).
+In questo modo basta un deliberation cost nell'high level dato il low level deve solo preoccuparsi di far somigliare il portafoglio corrente a quello indicato senza badare ai costi (come sarebbe nella realtà). Al contrario se le opzioni fossero solo tendenze di comportamento dell'agente, e quindi sarebbe trading (perché non c'è un portafoglio obiettivo ma le opzioni probabilmente sarebbero solo compra più azioni o compra più obbligazioni), allora si dovrebbero considerare i costi di transazione anche nel low level.
+
+4) Usare LLM: Usare un LLM che ti classifica gli articoli finanziari (l'articolo descrive fase espansiva dell'economia, crisi, guerre, fase di recessione) questa classificazione va ad influenzare la scelta di cambiare (e nel caso anche la scelta di quale usare al suo posto) l'opzione.
+
+
