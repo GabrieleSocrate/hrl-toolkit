@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+"""The Actor and Critic structure is for the low level, while for high level we use just a simple network called OptionValue"""
+
 class Actor(nn.Module):
     """Actor takes an observation (state) from the enviroment and produce an action"""
     def __init__(self, obs_dim, act_dim, act_limit, hidden = 256):
@@ -48,3 +50,22 @@ class Critic(nn.Module):
         x = F.relu(x)
         q = self.out(x)
         return q
+
+"""Now we create e network to estimate the Q value Q(s, o) for all the options in each state"""
+class OptionValue(nn.Module):
+    def __init__(self, obs_dim, num_options, hidden = 256):
+        super().__init__()
+        self.affine1 = nn.Linear(obs_dim, hidden)
+        self.ln1 = nn.LayerNorm(hidden)
+        self.affine2 = nn.Linear(hidden, hidden)
+        self.ln2 = nn.LayerNorm(hidden)
+        self.out = nn.Linear(hidden, num_options)
+    
+    def forward(self, x):
+        x = self.affine1(x)
+        x = self.ln1(x)
+        x = F.relu(x)
+        x = self.affine2(x)
+        x = self.ln2(x)
+        x = F.relu(x)
+        return self.out(x) # (B, num_options)
