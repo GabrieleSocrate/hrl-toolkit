@@ -1,6 +1,7 @@
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
+# INCLUDI QUESTO FILE IN NETWORKS
 
 class OptionPolicy(nn.Module):
     """This is the high level policy over options pi(o|s)

@@ -2,10 +2,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils import soft_update
 
 from option_policies import Termination
 from networks import OptionValue
-
+# These two are two networks one for termination function and one for high level
 
 class OptionAgent:
     """
@@ -19,6 +20,7 @@ class OptionAgent:
         num_options,
         low_level_agent,
         device = "cpu",
+        tau = 0.005,
         hidden = 256,
         eps_option = 0.0,
         terminate_deterministic = False,
@@ -35,13 +37,28 @@ class OptionAgent:
         self.num_options = num_options
         self.low_level = low_level_agent
         self.device = torch.device(device)
+        self.tau = tau
 
         # We have two different networks, one to choose options and one for the termination
+        """The OptionValue network estimates how good it is to pick option o in state s.
+        We'll train it with TD targets"""
         self.option_value = OptionValue(obs_dim, num_options, hidden = hidden).to(self.device)
+        
+        # Target network: is a slowly updated copy used only to build stable targets
+        self.option_value_targ = OptionValue(obs_dim, num_options, hidden = hidden).to(self.device)
+        self.option_value_targ.load_state_dict(self.option_value.state_dict())
+
+        for p in self.option_value_targ.parameters():
+            p.requires_grad = False
+        
+        # We initialize the optimizer
+        self.option_value_opt = torch.optim.Adam(self.option_value.parameters(), lr = 1e-3)
+
+        # Loss
+        self.mse = nn.MSELoss()
+
         self.termination = Termination(obs_dim, num_options, hidden=hidden).to(self.device)
 
-        for p in self.option_value.parameters():
-            p.requires_grad = False
         for p in self.termination.parameters():
             p.requires_grad = False
 
@@ -159,7 +176,6 @@ class OptionAgent:
             self.option_steps = 0
 
         # Low-level action 
-        """PER ORA LA DECISIONE DELL'AZIONE LOW LEVEL NON DIPENDE DALL'OPZIONE IN CUI MI TROVO"""
         action = self.low_level.act(obs, noise_std=noise_std, option = self.current_option)
 
         # Track option duration
@@ -168,20 +184,93 @@ class OptionAgent:
         return action, int(self.current_option), did_terminate
 
     def update(self, replay_buffer, batch_size=256, update_iteration=1):
-        """DA FINIRE UNA VOLTA CHE SI FA IL TRAIN DELLA TERMINATION FUNCTION E POLICY SU OPZIONI"""
         """
-        For now we only train the low-level agent (DDPG/TD3).
-        The replay buffer may already store option, but low-level ignores it.
+        We train high-level OptionValue QΩ(s, o) with TD targets
+        The TD target depends on whether the option terminated after the transition
+
+        - If the option did NOT terminate, next value continues with the SAME option: Q(s', o)
+        - If the option terminated, next value switches to the BEST next option: max_o' Q(s', o')
+
+        We then keep training the low-level controller (TD3/DDPG) exactly as always.
 
         Returns:
-            Whatever low_level.update returns (typically critic_loss, actor_loss, ...)
+        low_level_out: whatever TD3/DDPG returns (critic loss, etc.)
+        optv_loss_mean: mean OptionValue loss over update_iteration steps
         """
-        return self.low_level.update(
+
+        value_loss = []
+
+        for it in range(update_iteration):
+            # Sample from replay buffer 
+            state, next_state, action, reward, done, option, terminated = replay_buffer.sample(batch_size)
+
+            """Shapes returned by ReplayBuffer.sample (with batch_size = B):
+               state:      (B, obs_dim)
+               next_state: (B, obs_dim)
+               action:     (B, act_dim)      not used for OptionValue
+               reward:     (B, 1)
+               done:       (B, 1)
+               option:     (B,)              option index for each transition
+               terminated: (B, 1)            1 if option ended after the step, else 0
+            """
+
+            state = torch.as_tensor(state, dtype=torch.float32, device=self.device)            # (B, obs_dim)
+            next_state = torch.as_tensor(next_state, dtype=torch.float32, device=self.device)  # (B, obs_dim)
+            reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)          # (B, 1)
+            done = torch.as_tensor(done, dtype=torch.float32, device=self.device)              # (B, 1)
+            terminated = torch.as_tensor(terminated, dtype=torch.float32, device=self.device)  # (B, 1)
+            option = torch.as_tensor(option, dtype=torch.int64, device=self.device)            # (B,)
+
+            with torch.no_grad():
+                # Q-values for all options at next state: (B, K)
+                target_Q_next_all = self.option_value_targ(next_state)
+                
+                # Keep the same option so Q(s', o)
+                B = target_Q_next_all.shape[0]
+                idx = torch.arange(B, device=self.device)
+                target_Q_next_same = target_Q_next_all[idx, option].unsqueeze(1) # (B, 1)
+                
+                # Option ended so choose the best option max_o'(Q(s', o'))
+                target_Q_next_max = target_Q_next_all.max(dim = 1, keepdim = True).values # (B, 1)
+
+                """
+                Combine the two cases using the terminated flag as a switch:
+                - terminated = 0, keep same option
+                - terminated = 1, switch to max option
+                """
+                target_Q_next = (1.0 - terminated) * target_Q_next_same + terminated * target_Q_next_max
+
+                 # Standard TD target with episode termination mask (1-done)
+                target_Q = reward + self.low_level.gamma * (1.0 - done) * target_Q_next  # (B, 1)
+
+            # option_value(state) returns Q(s, o) for all o 
+            current_Q_all = self.option_value(state)
+            B = current_Q_all.shape[0]
+            idx = torch.arange(B, device=self.device)
+            current_Q = current_Q_all[idx, option].unsqueeze(1)  # select the option actually used in the transition (B,1)
+
+            # Make current_Q match the target_Q (exactly like critic training in TD3/DDPG).
+            optv_loss = self.mse(current_Q, target_Q)
+            value_loss.append(float(optv_loss.item()))
+
+            self.option_value_opt.zero_grad()
+            optv_loss.backward()
+            self.option_value_opt.step()
+
+            soft_update(self.option_value, self.option_value_targ, self.tau)
+
+        # Mean high-level "critic" loss (same pattern as TD3)
+        optv_loss_mean = float(np.mean(value_loss)) if len(value_loss) > 0 else 0.0
+
+        # Low-level update (unchanged, as requested)
+    
+        low_level_out = self.low_level.update(
             replay_buffer,
             batch_size=batch_size,
             update_iteration=update_iteration
         )
-
+        return low_level_out, optv_loss_mean
+    
     def get_stats(self):
         """
         This function is just to monitoring what is going on

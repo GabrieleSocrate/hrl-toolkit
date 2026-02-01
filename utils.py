@@ -30,3 +30,18 @@ def one_hot_option(option, num_options):
     v = np.zeros(num_options, dtype = np.float32)
     v[int(option)] = 1.0
     return v
+
+def soft_update(net, net_targ, tau: float):
+    """
+    Soft-update target network parameters:
+        θ_targ <- (1 - tau) * θ_targ + tau * θ
+
+    Why:
+    - target network changes slowly
+    - TD targets become more stable
+    - training becomes less noisy / less likely to diverge
+    """
+    with torch.no_grad():
+        for p, p_targ in zip(net.parameters(), net_targ.parameters()):
+            p_targ.data.mul_(1.0 - tau)
+            p_targ.data.add_(tau * p.data)

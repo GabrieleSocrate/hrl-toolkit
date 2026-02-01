@@ -105,7 +105,7 @@ def train(args):
 
         # we update after warmup and if there are enough samples to create a batch
         if t >= args.start_steps and len(buffer) >= args.batch_size:
-            update_out = agent.update(
+            low_out, optv_loss = agent.update(
                 buffer,
                 batch_size=args.batch_size,
                 update_iteration=args.update_iteration,
@@ -119,10 +119,10 @@ def train(args):
 
             # TD3 returns (critic_loss, actor_loss, did_actor_update)
             # DDPG returns (critic_loss, actor_loss)
-            if isinstance(update_out, tuple) and len(update_out) == 3:
-                critic_loss, actor_loss, did_actor_update = update_out
+            if isinstance(low_out, tuple) and len(low_out) == 3:
+                critic_loss, actor_loss, did_actor_update = low_out
             else:
-                critic_loss, actor_loss = update_out
+                critic_loss, actor_loss = low_out
                 did_actor_update = True  # DDPG updates actor every update() call
 
             if did_actor_update:
@@ -137,6 +137,7 @@ def train(args):
                 stats = agent.get_stats()
                 actor_loss_str = "NA" if actor_loss is None else f"{float(actor_loss):.4f}"
                 critic_loss_str = "NA" if critic_loss is None else f"{float(critic_loss):.4f}"
+                optv_loss_str = "NA" if optv_loss is None else f"{float(optv_loss):.4f}"
 
                 print(
                     f"t={t} | algo={algo}"
@@ -147,6 +148,7 @@ def train(args):
                     f" | opt_steps={stats['option_steps']}"
                     f" | terminations={stats['num_terminations']}"
                     f" | switches={stats['num_option_switches']}"
+                    f" | optv_loss={optv_loss_str}"
                 )
 
         if done:

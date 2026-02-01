@@ -4,14 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from networks import Actor, Critic
-from utils import one_hot_option
-
-
-def soft_update(net, target_net, tau):
-    with torch.no_grad():
-        for p, p_targ in zip(net.parameters(), target_net.parameters()):
-            p_targ.data.copy_((1.0 - tau) * p_targ.data + tau * p.data)
-
+from utils import one_hot_option, soft_update
 
 class DDPG:
     """
