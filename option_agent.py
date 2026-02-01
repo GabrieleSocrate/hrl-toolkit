@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from option_policies import OptionPolicy, Termination
+from option_policies import Termination
+from networks import OptionValue
 
 
 class OptionAgent:
@@ -36,10 +37,10 @@ class OptionAgent:
         self.device = torch.device(device)
 
         # We have two different networks, one to choose options and one for the termination
-        self.option_policy = OptionPolicy(obs_dim, num_options, hidden=hidden).to(self.device)
+        self.option_value = OptionValue(obs_dim, num_options, hidden = hidden).to(self.device)
         self.termination = Termination(obs_dim, num_options, hidden=hidden).to(self.device)
 
-        for p in self.option_policy.parameters():
+        for p in self.option_value.parameters():
             p.requires_grad = False
         for p in self.termination.parameters():
             p.requires_grad = False
@@ -69,33 +70,23 @@ class OptionAgent:
 
     def select_option(self, obs, greedy = False):
         """
-        Sample an option using pi(o|s) (categorical from softmax logits) with optional epsilon-greedy.
-        if greedy=True then is argmax over options 
+        To select the option we use Harb-style selecting the option with the highest Q-value Q(s, o) associated
+        If greedy = True: we use argmax over Q(s, o) and select o associated with the highest
+        Else epsilon-greedy on Q-values
         """
         with torch.no_grad():
             s = self.obs_to_torch(obs)  # (1, obs_dim)
-            logits = self.option_policy(s)  # (1, K)
+            q = self.option_value(s)  # (1, K)
 
             if greedy:
-                o = int(torch.argmax(logits, dim=1).item())
+                o = int(torch.argmax(q).item())
                 return o
 
             # epsilon-greedy on options
-            if self.eps_option > 0.0 and np.random.rand() < self.eps_option:
+            if self.eps_option > 0.0 and np.random.rand() < self.eps_option: # this is for epsilon greedy but when we explore
                 return int(np.random.randint(self.num_options))
 
-            probs = torch.softmax(logits, dim=1)  # (1,K) from logits we obtain probabilities
-            o = torch.multinomial(probs, num_samples=1)  # (1,1) 
-            """Option selection:
-            The high-level policy defines a discrete distribution over K options:
-            π(o | s),  with  o ∈ {0, ..., K−1}.
-            At each decision point, exactly ONE option must be chosen.
-            This corresponds to a categorical random variable, obtained by applying
-            a softmax to the logits and sampling one index.
-            In practice, this is implemented via torch.multinomial(probs, num_samples=1),
-            which performs a categorical (multinomial with one trial) draw."""
-
-            return int(o.item())
+            return int(torch.argmax(q).item()) # This is for epsilon greedy but when we exploit 
 
     
     def should_terminate(self, obs, option):
