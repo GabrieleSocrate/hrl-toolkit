@@ -259,6 +259,10 @@ class OptionAgent:
             # beta(s', o) is the termination probability predicted by the termination network
             beta_next = self.termination.beta(next_state, option) # (B, 1) in [0, 1]
 
+            """Now we create a copy of this beta in order to use it for the QΩ target, 
+            and since we use it in the TD target, it has to be treated as constant so we use detach()"""
+            beta_TD = beta_next.detach()
+
             term_loss = (beta_next * (adv_next + self.delib_cost)).mean()
             term_losses.append(float(term_loss.item()))
 
@@ -270,11 +274,14 @@ class OptionAgent:
             with torch.no_grad():
 
                 """
-                Combine the two cases using the terminated flag as a switch:
-                - terminated = 0, keep same option
-                - terminated = 1, switch to max option
+                Instead of using the sampled flag 'terminated' as a hard switch (0/1),
+                we use the termination probability beta(s', o) predicted by the termination network.
+
+                Intuition:
+                - With probability (1 - beta), the option continues 
+                - With probability beta, the option terminates
                 """
-                target_Q_next = (1.0 - terminated) * target_Q_next_same + terminated * target_Q_next_max
+                target_Q_next = (1.0 - beta_TD) * target_Q_next_same + beta_TD * target_Q_next_max
 
                 # Standard TD target with episode termination mask (1-done)
                 target_Q = reward + self.low_level.gamma * (1.0 - done) * target_Q_next  # (B, 1)
