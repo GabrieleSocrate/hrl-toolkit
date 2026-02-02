@@ -88,11 +88,17 @@ def train(args):
         next_obs, reward, terminated, truncated, info = env.step(action)
         done = float(terminated or truncated)
 
+        """
+        We also want the deliberation cost to affect the replay buffer reward:
+        If we terminated the option and the episode is not ending , we pay a cost
+        """
+        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - done)
+
         # Store HRL transition 
         buffer.push(
             obs=obs,
             action=action,
-            reward=reward,
+            reward=reward_eff,
             next_obs=next_obs,
             done=done,
             option=option,
