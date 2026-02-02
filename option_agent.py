@@ -56,11 +56,16 @@ class OptionAgent:
 
         # Loss
         self.mse = nn.MSELoss()
-
+        
+        """The Termination network outputs beta(s, o) that are probabilities (in [0, 1]) that the option o terminates in state s"""
         self.termination = Termination(obs_dim, num_options, hidden=hidden).to(self.device)
 
-        for p in self.termination.parameters():
-            p.requires_grad = False
+        # We initialize the optimizer
+        self.termination_opt = torch.optim.Adam(self.termination.parameters(), lr = 1e-4)
+
+        # DELIBERATION COST
+        # Adding +c inside the termination update discourages switching frequently 
+        self.delib_cost = 0.01 # LATER WE SHOULD TUNE IT
 
         self.eps_option = float(eps_option)
         self.terminate_deterministic = bool(terminate_deterministic)
@@ -185,20 +190,26 @@ class OptionAgent:
 
     def update(self, replay_buffer, batch_size=256, update_iteration=1):
         """
-        We train high-level OptionValue QΩ(s, o) with TD targets
-        The TD target depends on whether the option terminated after the transition
+        1) We train high-level OptionValue QΩ(s, o) with TD targets
+           The TD target depends on whether the option terminated after the transition
 
-        - If the option did NOT terminate, next value continues with the SAME option: Q(s', o)
-        - If the option terminated, next value switches to the BEST next option: max_o' Q(s', o')
+            - If the option did NOT terminate, next value continues with the SAME option: Q(s', o)
+            - If the option terminated, next value switches to the BEST next option: max_o' Q(s', o')
 
-        We then keep training the low-level controller (TD3/DDPG) exactly as always.
+            We then keep training the low-level controller (TD3/DDPG) exactly as always.
+        
+        2) We also train the Termination using the term: mean( beta(s',o) * (A(s',o) + delib_cost) )
+           where A(s',o) = Q(s',o) - V(s') and V(s') = max_o' Q(s',o').
+           
 
         Returns:
         low_level_out: whatever TD3/DDPG returns (critic loss, etc.)
         optv_loss_mean: mean OptionValue loss over update_iteration steps
+        term_loss_mean: mean loss used to update termination beta
         """
 
         value_loss = []
+        term_losses = []
 
         for it in range(update_iteration):
             # Sample from replay buffer 
@@ -221,17 +232,42 @@ class OptionAgent:
             terminated = torch.as_tensor(terminated, dtype=torch.float32, device=self.device)  # (B, 1)
             option = torch.as_tensor(option, dtype=torch.int64, device=self.device)            # (B,)
 
+            B = state.shape[0]
+            idx = torch.arange(B, device=self.device)
+
+            # Compute target Q-values at next state using Target OptionValue net
             with torch.no_grad():
                 # Q-values for all options at next state: (B, K)
                 target_Q_next_all = self.option_value_targ(next_state)
                 
                 # Keep the same option so Q(s', o)
-                B = target_Q_next_all.shape[0]
-                idx = torch.arange(B, device=self.device)
                 target_Q_next_same = target_Q_next_all[idx, option].unsqueeze(1) # (B, 1)
                 
                 # Option ended so choose the best option max_o'(Q(s', o'))
                 target_Q_next_max = target_Q_next_all.max(dim = 1, keepdim = True).values # (B, 1)
+            
+            """
+            Term: mean( beta(s',o) * ( (Q(s',o) - V(s')) + delib_cost ) )
+            - Q(s',o) - V(s') is an advantage-like signal:
+                negative -> staying with current option is worse than switching -> encourage termination
+                positive -> staying is not worse -> discourage termination
+
+            - delib_cost shifts the decision to avoid too frequent switching.
+            """
+            adv_next = (target_Q_next_same - target_Q_next_max).detach() # (B, 1)
+
+            # beta(s', o) is the termination probability predicted by the termination network
+            beta_next = self.termination.beta(next_state, option) # (B, 1) in [0, 1]
+
+            term_loss = (beta_next * (adv_next + self.delib_cost)).mean()
+            term_losses.append(float(term_loss.item()))
+
+            self.termination_opt.zero_grad()
+            term_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.termination.parameters(), max_norm=1.0)
+            self.termination_opt.step()
+            
+            with torch.no_grad():
 
                 """
                 Combine the two cases using the terminated flag as a switch:
@@ -240,13 +276,12 @@ class OptionAgent:
                 """
                 target_Q_next = (1.0 - terminated) * target_Q_next_same + terminated * target_Q_next_max
 
-                 # Standard TD target with episode termination mask (1-done)
+                # Standard TD target with episode termination mask (1-done)
                 target_Q = reward + self.low_level.gamma * (1.0 - done) * target_Q_next  # (B, 1)
 
             # option_value(state) returns Q(s, o) for all o 
             current_Q_all = self.option_value(state)
-            B = current_Q_all.shape[0]
-            idx = torch.arange(B, device=self.device)
+            
             current_Q = current_Q_all[idx, option].unsqueeze(1)  # select the option actually used in the transition (B,1)
 
             # Make current_Q match the target_Q (exactly like critic training in TD3/DDPG).
@@ -259,8 +294,9 @@ class OptionAgent:
 
             soft_update(self.option_value, self.option_value_targ, self.tau)
 
-        # Mean high-level "critic" loss (same pattern as TD3)
+        # Mean high-level and termination losses (same pattern as TD3)
         optv_loss_mean = float(np.mean(value_loss)) if len(value_loss) > 0 else 0.0
+        term_loss_mean = float(np.mean(term_losses)) if len(term_losses) > 0 else 0.0
 
         # Low-level update (unchanged, as requested)
     
@@ -269,7 +305,7 @@ class OptionAgent:
             batch_size=batch_size,
             update_iteration=update_iteration
         )
-        return low_level_out, optv_loss_mean
+        return low_level_out, optv_loss_mean, term_loss_mean
     
     def get_stats(self):
         """
