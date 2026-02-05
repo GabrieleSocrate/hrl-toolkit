@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import torch
 from utils import set_seed, make_env
 from experience_replay import ReplayBuffer
 from ddpg import DDPG
@@ -167,7 +168,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--env", type=str, default="Pendulum-v1")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--device", type=str, default="cpu")
+    p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--total_steps", type=int, default=200000)
     p.add_argument("--buffer_size", type=int, default=1000000)
     p.add_argument("--batch_size", type=int, default=256)
