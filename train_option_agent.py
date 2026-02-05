@@ -89,11 +89,17 @@ def train(args):
         next_obs, reward, terminated, truncated, info = env.step(action)
         done = float(terminated or truncated)
 
+        """
+        We also want the deliberation cost to affect the replay buffer reward:
+        If we terminated the option and the episode is not ending , we pay a cost
+        """
+        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - done)
+
         # Store HRL transition 
         buffer.push(
             obs=obs,
             action=action,
-            reward=reward,
+            reward=reward_eff,
             next_obs=next_obs,
             done=done,
             option=option,
@@ -106,7 +112,7 @@ def train(args):
 
         # we update after warmup and if there are enough samples to create a batch
         if t >= args.start_steps and len(buffer) >= args.batch_size:
-            low_out, optv_loss = agent.update(
+            low_out, optv_loss, term_loss = agent.update(
                 buffer,
                 batch_size=args.batch_size,
                 update_iteration=args.update_iteration,
@@ -139,6 +145,7 @@ def train(args):
                 actor_loss_str = "NA" if actor_loss is None else f"{float(actor_loss):.4f}"
                 critic_loss_str = "NA" if critic_loss is None else f"{float(critic_loss):.4f}"
                 optv_loss_str = "NA" if optv_loss is None else f"{float(optv_loss):.4f}"
+                term_loss_str = "NA" if term_loss is None else f"{float(term_loss):.4f}"
 
                 print(
                     f"t={t} | algo={algo}"
@@ -150,6 +157,7 @@ def train(args):
                     f" | terminations={stats['num_terminations']}"
                     f" | switches={stats['num_option_switches']}"
                     f" | optv_loss={optv_loss_str}"
+                    f" | term_loss={term_loss_str}"
                 )
 
         if done:
