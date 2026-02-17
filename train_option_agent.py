@@ -1,6 +1,11 @@
 import argparse
 import numpy as np
 import torch
+import os
+import csv
+import matplotlib.pyplot as plt
+
+
 from utils import set_seed, make_env
 from experience_replay import ReplayBuffer
 from ddpg import DDPG
@@ -18,6 +23,82 @@ def get_noise_std(ep):
         return 0.1
     else:
         return 0.01
+
+###################################
+# Modifiche per grafici  
+def moving_average(x, window=50):
+    """
+    Return a list with the moving average of x using a fixed window size.
+    Example: window=3 -> [avg(x[0:3]), avg(x[1:4]), ...]
+    """
+    x = list(x)
+
+    # Not enough points -> no moving average
+    if len(x) < window:
+        return []
+
+    averages = []
+
+    # For each window of length 'window', compute its mean
+    for i in range(len(x) - window + 1):
+        chunk = x[i : i + window]          # take window values
+        avg = sum(chunk) / window          # compute average
+        averages.append(avg)
+
+    return averages
+
+def save_plots(run_dir, rows, ma_window=50):
+    if not rows:
+        print("No episode rows to plot.")
+        return
+
+    episodes = [r["episode"] for r in rows]
+    ep_return = [r["ep_return"] for r in rows]
+
+    # 1) Return + moving average
+    plt.figure()
+    plt.plot(episodes, ep_return)
+    ma = moving_average(ep_return, window=ma_window)
+    if len(ma) > 0:
+        # moving average is shorter -> align it to the end
+        plt.plot(episodes[-len(ma):], ma)
+    plt.title("Episode Return")
+    plt.xlabel("Episode")
+    plt.ylabel("Return")
+    plt.savefig(os.path.join(run_dir, "return.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+    # 2) Losses (NaN when missing)
+    def col(name):
+        out = []
+        for r in rows:
+            v = r.get(name, None)
+            out.append(np.nan if v is None else float(v))
+        return out
+
+    plt.figure()
+    plt.plot(episodes, col("critic_loss"))
+    plt.plot(episodes, col("actor_loss"))
+    plt.plot(episodes, col("optv_loss"))
+    plt.plot(episodes, col("term_loss"))
+    plt.title("Losses (may be sparse / NaN when not updated)")
+    plt.xlabel("Episode")
+    plt.ylabel("Loss")
+    plt.legend(["critic", "actor", "optv", "term"])
+    plt.savefig(os.path.join(run_dir, "losses.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+    # 3) HRL stats per episode
+    plt.figure()
+    plt.plot(episodes, [r["terminations"] for r in rows])
+    plt.plot(episodes, [r["switches"] for r in rows])
+    plt.title("HRL stats per episode")
+    plt.xlabel("Episode")
+    plt.ylabel("Count")
+    plt.legend(["terminations", "switches"])
+    plt.savefig(os.path.join(run_dir, "hrl_stats.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+####################################
 
 
 def train(args):
@@ -82,11 +163,51 @@ def train(args):
 
     total_actor_updates_seen = 0
 
+    ###################################
+    # Modifiche per grafici
+    # ---- minimal logging to CSV + plots ----
+    run_name = f"{args.env}_{algo}_seed{args.seed}"
+    run_dir = os.path.join("runs", run_name)
+    os.makedirs(run_dir, exist_ok=True)
+
+    csv_path = os.path.join(run_dir, "episodes.csv")
+    csv_file = open(csv_path, "w", newline="")
+    csv_writer = csv.DictWriter(
+        csv_file,
+        fieldnames=[
+            "episode",
+            "t",
+            "ep_len",
+            "ep_return",
+            "critic_loss",
+            "actor_loss",
+            "optv_loss",
+            "term_loss",
+            "terminations",
+            "switches",
+        ],
+    )
+    csv_writer.writeheader()
+
+    episode_rows = []
+    last_critic_loss, last_actor_loss = None, None
+    last_optv_loss, last_term_loss = None, None
+
+    # agent.get_stats() is cumulative: keep prev values to log per-episode deltas
+    prev_cum_terminations = 0
+    prev_cum_switches = 0
+    ################################################
+
     for t in range(args.total_steps):
         noise_std = get_noise_std(episodes)
         action, option, did_terminate = agent.act(obs, noise_std=noise_std, greedy_option=False)
 
         next_obs, reward, terminated, truncated, info = env.step(action)
+        """
+        did_terminate refers to the option if it ended
+        terminated is True if the episodes finishes due to goal reach (always false)
+        truncated is True if the episode is forced to terminate (True after 200 step)
+        """
         done = float(terminated or truncated)
 
         """
@@ -132,6 +253,27 @@ def train(args):
                 critic_loss, actor_loss = low_out
                 did_actor_update = True  # DDPG updates actor every update() call
 
+            ###########################
+            # Modifiche grafici
+             # keep last seen losses for episode-level logging
+            try:
+                last_critic_loss = None if critic_loss is None else float(critic_loss)
+            except Exception:
+                last_critic_loss = None
+            try:
+                last_actor_loss = None if actor_loss is None else float(actor_loss)
+            except Exception:
+                last_actor_loss = None
+            try:
+                last_optv_loss = None if optv_loss is None else float(optv_loss)
+            except Exception:
+                last_optv_loss = None
+            try:
+                last_term_loss = None if term_loss is None else float(term_loss)
+            except Exception:
+                last_term_loss = None
+            ############################
+
             if did_actor_update:
                 total_actor_updates_seen += 1
                 if (total_actor_updates_seen % args.print_actor_every) == 0:
@@ -164,6 +306,34 @@ def train(args):
             episodes += 1
             print(f"ep {episodes} done | len={ep_len} | return={ep_return:.2f} | t={t}")
 
+            #######################
+            # Modifica per grafici
+            # log per-episode stats (convert cumulative stats to episode deltas)
+            stats = agent.get_stats()
+            cum_terms = int(stats.get("num_terminations", 0))
+            cum_switch = int(stats.get("num_option_switches", 0))
+            ep_terms = max(0, cum_terms - prev_cum_terminations)
+            ep_switch = max(0, cum_switch - prev_cum_switches)
+            prev_cum_terminations = cum_terms
+            prev_cum_switches = cum_switch
+
+            row = {
+                "episode": episodes,
+                "t": t,
+                "ep_len": ep_len,
+                "ep_return": float(ep_return),
+                "critic_loss": last_critic_loss,
+                "actor_loss": last_actor_loss,
+                "optv_loss": last_optv_loss,
+                "term_loss": last_term_loss,
+                "terminations": ep_terms,
+                "switches": ep_switch,
+            }
+            csv_writer.writerow(row)
+            csv_file.flush()
+            episode_rows.append(row)
+            ###################################
+            
             obs, info = env.reset()
             agent.reset(obs)
 
@@ -193,7 +363,7 @@ if __name__ == "__main__":
     p.add_argument("--policy_delay", type=int, default=2)
     p.add_argument("--num_options", type=int, default=4)
     p.add_argument("--eps_option", type=float, default=0.0)
-    p.add_argument("--terminate_deterministic", action="store_true")
+    p.add_argument("--terminate_deterministic", action="store_true") # is false by default if you write in command line it becames true 
     p.add_argument("--log_every", type=int, default=2000)
     p.add_argument("--print_actor_every", type=int, default=200) 
     p.add_argument("--min_option_steps", type=int, default=50) # each option has to last for at least 50 steps then it can be changed

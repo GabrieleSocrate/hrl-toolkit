@@ -4,6 +4,19 @@ from utils import set_seed, make_env
 from experience_replay import ReplayBuffer
 from agents import make_agent
 
+import csv, os
+os.makedirs("runs", exist_ok=True)
+csv_path = "runs/lowlevel_metrics.csv"
+
+csv_file = open(csv_path, "w", newline="")
+writer = csv.DictWriter(csv_file, fieldnames=[
+    "episode", "t", "ep_len", "ep_return",
+    "critic_loss", "actor_loss"
+])
+writer.writeheader()
+
+last_critic_loss, last_actor_loss = None, None
+
 
 def get_noise_std(ep):
     """At the beginning the noise will be high, so high exploration,
@@ -14,6 +27,7 @@ def get_noise_std(ep):
         return 0.1
     else:
         return 0.01
+    
 
 
 def train(args):
@@ -39,6 +53,7 @@ def train(args):
         policy_noise=args.policy_noise,
         noise_clip=args.noise_clip,
         policy_delay=args.policy_delay,
+        num_options=args.num_options
     )
 
     buffer = ReplayBuffer(max_size=args.buffer_size)
@@ -52,12 +67,13 @@ def train(args):
 
     for t in range(args.total_steps):
         noise_std = get_noise_std(episodes)
-        action = agent.act(obs, noise_std=noise_std) # the agent choose an action, we add some noise for exploration
+        option = 0
+        action = agent.act(obs, noise_std=noise_std, option = option) # the agent choose an action, we add some noise for exploration
 
         next_obs, reward, terminated, truncated, info = env.step(action)
         done = float(terminated or truncated)
 
-        buffer.push(obs, action, reward, next_obs, done) # save the transition in the replay buffer
+        buffer.push(obs, action, reward, next_obs, done, option = option) # save the transition in the replay buffer
 
         obs = next_obs
         ep_return += float(reward)
@@ -70,6 +86,9 @@ def train(args):
                 batch_size=args.batch_size,
                 update_iteration=args.update_iteration
             )
+            last_critic_loss = float(critic_loss)
+            last_actor_loss = None if actor_loss is None else float(actor_loss)
+
             # we update critic and actor using a batch from the buffer
             """update_iteration = how many "gradient steps" you do for each iteration with the enviroment,
             if it's too high you risk to overfit the replay buffer"""
@@ -103,8 +122,21 @@ def train(args):
             print(f"ep {episodes} done | len={ep_len} | return={ep_return:.2f} | t={t}")
             obs, info = env.reset()
             ep_return, ep_len = 0.0, 0
+            writer.writerow({
+                "episode": episodes,
+                "t": t,
+                "ep_len": ep_len,
+                "ep_return": ep_return,
+                "critic_loss": last_critic_loss if last_critic_loss is not None else "",
+                "actor_loss": last_actor_loss if last_actor_loss is not None else "",
+                })
+            csv_file.flush()
+
 
     env.close()
+    csv_file.close()
+    print("Saved metrics to:", csv_path)
+
 
 
 if __name__ == "__main__":
@@ -136,6 +168,8 @@ if __name__ == "__main__":
 
     
     p.add_argument("--actor_print_every", type=int, default=200)
+    p.add_argument("--num_options", type=int, default=1)
+
 
     args = p.parse_args()
     train(args)

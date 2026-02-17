@@ -177,7 +177,7 @@ class TD3:
                 target_Q_next = torch.min(target_Q_next1, target_Q_next2)
 
                 # Bellman target
-                target_Q = reward + self.gamma * (1.0 - done) * target_Q_next
+                target_Q = reward + self.gamma *  target_Q_next # DA MODIFICARE
 
             # current Q estimates (two critics)
             current_Q1 = self.critic1(state, action)

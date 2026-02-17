@@ -21,6 +21,7 @@ def make_agent(algo: str, **kwargs):
             actor_lr=kwargs.get("actor_lr", 1e-3),
             critic_lr=kwargs.get("critic_lr", 1e-3),
             hidden=kwargs.get("hidden", 256),
+             num_options=kwargs.get("num_options", 1),
         )
 
     if algo == "td3":
@@ -37,6 +38,7 @@ def make_agent(algo: str, **kwargs):
             policy_noise=kwargs.get("policy_noise", 0.2),
             noise_clip=kwargs.get("noise_clip", 0.5),
             policy_delay=kwargs.get("policy_delay", 2),
+             num_options=kwargs.get("num_options", 1),
         )
 
     raise ValueError(f"Unknown algo='{algo}'. Use 'ddpg' or 'td3'.")
