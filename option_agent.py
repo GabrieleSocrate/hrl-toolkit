@@ -64,7 +64,7 @@ class OptionAgent:
 
         # DELIBERATION COST
         # Adding +c inside the termination update discourages switching frequently 
-        self.delib_cost = 0.01 # LATER WE SHOULD TUNE IT
+        self.delib_cost = 0.5 # LATER WE SHOULD TUNE IT
 
         self.eps_option = float(eps_option)
         self.terminate_deterministic = bool(terminate_deterministic)
@@ -173,6 +173,8 @@ class OptionAgent:
         if can_terminate and self.should_terminate(obs, self.current_option): # it's true if the option terminated and if the option lasted long enough
             did_terminate = True 
             self.num_terminations += 1
+            # I put here a print to understand hom many steps the options last
+            print(f"[TERM EVENT] option_steps={self.option_steps} | option={self.current_option}")
 
             # pick a new option
             self.current_option = self.select_option(obs, greedy=greedy_option)

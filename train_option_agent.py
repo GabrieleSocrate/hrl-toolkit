@@ -98,6 +98,18 @@ def save_plots(run_dir, rows, ma_window=50):
     plt.legend(["terminations", "switches"])
     plt.savefig(os.path.join(run_dir, "hrl_stats.png"), dpi=150, bbox_inches="tight")
     plt.close()
+
+    # 4) Average option duration per episode
+    plt.figure()
+    avg_dur = col("avg_term_dur")
+    plt.plot(episodes, avg_dur)
+    ma = moving_average([v for v in avg_dur if not np.isnan(v)], window=ma_window)
+    plt.title("Avg option duration at termination (per episode)")
+    plt.xlabel("Episode")
+    plt.ylabel("Steps")
+    plt.savefig(os.path.join(run_dir, "avg_term_duration.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
 ####################################
 
 
@@ -341,13 +353,18 @@ def train(args):
 
     env.close()
 
+    csv_file.close()
+    save_plots(run_dir, episode_rows, ma_window=50)
+    print("Saved logs to:", csv_path)
+    print("Saved plots to:", run_dir)
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--env", type=str, default="Pendulum-v1")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--total_steps", type=int, default=200000)
+    p.add_argument("--total_steps", type=int, default=500000)
     p.add_argument("--buffer_size", type=int, default=1000000)
     p.add_argument("--batch_size", type=int, default=256)
     p.add_argument("--start_steps", type=int, default=5000)      
@@ -357,14 +374,14 @@ if __name__ == "__main__":
     p.add_argument("--actor_lr", type=float, default=1e-3)
     p.add_argument("--critic_lr", type=float, default=1e-3)
     p.add_argument("--hidden", type=int, default=256)
-    p.add_argument("--algo", type=str, default="td3", choices=["ddpg", "td3"])
+    p.add_argument("--algo", type=str, default="ddpg", choices=["ddpg", "td3"])
     p.add_argument("--policy_noise", type=float, default=0.2)
     p.add_argument("--noise_clip", type=float, default=0.5)
     p.add_argument("--policy_delay", type=int, default=2)
     p.add_argument("--num_options", type=int, default=4)
     p.add_argument("--eps_option", type=float, default=0.0)
     p.add_argument("--terminate_deterministic", action="store_true") # is false by default if you write in command line it becames true 
-    p.add_argument("--log_every", type=int, default=2000)
+    p.add_argument("--log_every", type=int, default=500)
     p.add_argument("--print_actor_every", type=int, default=200) 
     p.add_argument("--min_option_steps", type=int, default=50) # each option has to last for at least 50 steps then it can be changed
  
