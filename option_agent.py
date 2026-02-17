@@ -4,8 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from utils import soft_update
 
-from option_policies import Termination
-from networks import OptionValue
+from networks import OptionValue, Termination
 # These two are two networks one for termination function and one for high level
 
 class OptionAgent:
@@ -284,7 +283,7 @@ class OptionAgent:
                 target_Q_next = (1.0 - beta_TD) * target_Q_next_same + beta_TD * target_Q_next_max
 
                 # Standard TD target with episode termination mask (1-done)
-                target_Q = reward + self.low_level.gamma * (1.0 - done) * target_Q_next  # (B, 1)
+                target_Q = reward + self.low_level.gamma * target_Q_next  # (B, 1) # DA MODIFICARE
 
             # option_value(state) returns Q(s, o) for all o 
             current_Q_all = self.option_value(state)
