@@ -100,16 +100,19 @@ def save_plots(run_dir, rows, ma_window=50):
     plt.close()
 
     # 4) Average option duration per episode
-    # This is robust without touching OptionAgent.act()
     plt.figure()
     avg_term = col("avg_term_steps")
-    plt.plot(episodes, avg_term)
 
-    # moving average (saltando NaN)
-    valid = [v for v in avg_term if not np.isnan(v)]
-    ma2 = moving_average(valid, window=ma_window)
+    # allineamento corretto: prendo solo (ep, val) validi
+    ep_valid = [ep for ep, v in zip(episodes, avg_term) if not np.isnan(v)]
+    val_valid = [v  for v  in avg_term if not np.isnan(v)]
+
+    # plot solo dei punti validi (niente “linea a buchi”)
+    plt.plot(ep_valid, val_valid)
+
+    ma2 = moving_average(val_valid, window=ma_window)
     if len(ma2) > 0:
-        plt.plot(episodes[-len(ma2):], ma2)
+        plt.plot(ep_valid[-len(ma2):], ma2)
 
     plt.title("Avg option duration at termination (mean TERM EVENT) per episode")
     plt.xlabel("Episode")
@@ -227,26 +230,26 @@ def train(args):
         noise_std = get_noise_std(episodes)
         action, option, did_terminate, term_steps = agent.act(obs, noise_std=noise_std, greedy_option=False) # term_steps è MODIFICA PER DEBUG
 
-        ########################
-        # MODIFICA DEBUG
-        if term_steps is not None:
-            ep_term_steps_sum += int(term_steps)
-            ep_term_steps_count += 1
-        ############################
-
         next_obs, reward, terminated, truncated, info = env.step(action)
         """
         did_terminate refers to the option if it ended
         terminated is True if the episodes finishes due to goal reach (always false)
         truncated is True if the episode is forced to terminate (True after 200 step)
         """
-        done = float(terminated or truncated)
+        done = bool(terminated or truncated) # I need bool for the condition under here
+        ##################
+        # Modifica debug
+        if did_terminate and (term_steps is not None) and (not done):
+            ep_term_steps_sum += int(term_steps)
+            ep_term_steps_count += 1
+        ##################
 
         """
         We also want the deliberation cost to affect the replay buffer reward:
         If we terminated the option and the episode is not ending , we pay a cost
         """
-        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - done)
+        done_float = float(done)
+        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - done_float)
 
         # Store HRL transition 
         buffer.push(
@@ -254,7 +257,7 @@ def train(args):
             action=action,
             reward=reward_eff,
             next_obs=next_obs,
-            done=done,
+            done=done_float,
             option=option,
             terminated=float(did_terminate),
         )
@@ -352,7 +355,7 @@ def train(args):
             if ep_term_steps_count > 0:
                 avg_term_steps = ep_term_steps_sum / ep_term_steps_count
             else:
-                avg_term_steps = 0.0
+                avg_term_steps = None
 
 
             row = {
@@ -366,7 +369,7 @@ def train(args):
                 "term_loss": last_term_loss,
                 "terminations": ep_terms,
                 "switches": ep_switch,
-                "avg_term_steps": float(avg_term_steps),
+                "avg_term_steps": avg_term_steps,
             }
             csv_writer.writerow(row)
             csv_file.flush()
