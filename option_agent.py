@@ -169,12 +169,22 @@ class OptionAgent:
 
         can_terminate = self.option_steps >= self.min_option_steps # allow termination only after min_option_steps
 
+        ###############
+        # Modifica per debug
+        term_steps = None # This is how many steps in the option before it terminates (it will be returned by the agent in order to use it in train to make average option duration graph)
+        ###############
+
         # Check termination BEFORE selecting low-level action 
         if can_terminate and self.should_terminate(obs, self.current_option): # it's true if the option terminated and if the option lasted long enough
             did_terminate = True 
             self.num_terminations += 1
+
+            ###################
+            # Modifica per debug
+            term_steps = int(self.option_steps)
             # I put here a print to understand hom many steps the options last
             print(f"[TERM EVENT] option_steps={self.option_steps} | option={self.current_option}")
+            ####################
 
             # pick a new option
             self.current_option = self.select_option(obs, greedy=greedy_option)
@@ -187,7 +197,7 @@ class OptionAgent:
         # Track option duration
         self.option_steps += 1
 
-        return action, int(self.current_option), did_terminate
+        return action, int(self.current_option), did_terminate, term_steps # Il return di term_steps è MODIFICA PER DEBUG
 
     def update(self, replay_buffer, batch_size=256, update_iteration=1):
         """

@@ -100,15 +100,24 @@ def save_plots(run_dir, rows, ma_window=50):
     plt.close()
 
     # 4) Average option duration per episode
+    # This is robust without touching OptionAgent.act()
     plt.figure()
-    avg_dur = col("avg_term_dur")
-    plt.plot(episodes, avg_dur)
-    ma = moving_average([v for v in avg_dur if not np.isnan(v)], window=ma_window)
-    plt.title("Avg option duration at termination (per episode)")
+    avg_term = col("avg_term_steps")
+    plt.plot(episodes, avg_term)
+
+    # moving average (saltando NaN)
+    valid = [v for v in avg_term if not np.isnan(v)]
+    ma2 = moving_average(valid, window=ma_window)
+    if len(ma2) > 0:
+        plt.plot(episodes[-len(ma2):], ma2)
+
+    plt.title("Avg option duration at termination (mean TERM EVENT) per episode")
     plt.xlabel("Episode")
     plt.ylabel("Steps")
-    plt.savefig(os.path.join(run_dir, "avg_term_duration.png"), dpi=150, bbox_inches="tight")
+    plt.legend(["avg_term_steps", "moving average"])
+    plt.savefig(os.path.join(run_dir, "avg_option_duration_term.png"), dpi=150, bbox_inches="tight")
     plt.close()
+
 
 ####################################
 
@@ -197,6 +206,7 @@ def train(args):
             "term_loss",
             "terminations",
             "switches",
+            "avg_term_steps",
         ],
     )
     csv_writer.writeheader()
@@ -208,11 +218,21 @@ def train(args):
     # agent.get_stats() is cumulative: keep prev values to log per-episode deltas
     prev_cum_terminations = 0
     prev_cum_switches = 0
+
+    ep_term_steps_sum = 0
+    ep_term_steps_count = 0
     ################################################
 
     for t in range(args.total_steps):
         noise_std = get_noise_std(episodes)
-        action, option, did_terminate = agent.act(obs, noise_std=noise_std, greedy_option=False)
+        action, option, did_terminate, term_steps = agent.act(obs, noise_std=noise_std, greedy_option=False) # term_steps è MODIFICA PER DEBUG
+
+        ########################
+        # MODIFICA DEBUG
+        if term_steps is not None:
+            ep_term_steps_sum += int(term_steps)
+            ep_term_steps_count += 1
+        ############################
 
         next_obs, reward, terminated, truncated, info = env.step(action)
         """
@@ -329,6 +349,12 @@ def train(args):
             prev_cum_terminations = cum_terms
             prev_cum_switches = cum_switch
 
+            if ep_term_steps_count > 0:
+                avg_term_steps = ep_term_steps_sum / ep_term_steps_count
+            else:
+                avg_term_steps = 0.0
+
+
             row = {
                 "episode": episodes,
                 "t": t,
@@ -340,10 +366,14 @@ def train(args):
                 "term_loss": last_term_loss,
                 "terminations": ep_terms,
                 "switches": ep_switch,
+                "avg_term_steps": float(avg_term_steps),
             }
             csv_writer.writerow(row)
             csv_file.flush()
             episode_rows.append(row)
+            ep_term_steps_sum = 0
+            ep_term_steps_count = 0
+
             ###################################
             
             obs, info = env.reset()
@@ -378,7 +408,7 @@ if __name__ == "__main__":
     p.add_argument("--policy_noise", type=float, default=0.2)
     p.add_argument("--noise_clip", type=float, default=0.5)
     p.add_argument("--policy_delay", type=int, default=2)
-    p.add_argument("--num_options", type=int, default=4)
+    p.add_argument("--num_options", type=int, default=2)
     p.add_argument("--eps_option", type=float, default=0.0)
     p.add_argument("--terminate_deterministic", action="store_true") # is false by default if you write in command line it becames true 
     p.add_argument("--log_every", type=int, default=500)
