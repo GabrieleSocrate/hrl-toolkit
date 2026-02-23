@@ -335,3 +335,58 @@ class OptionAgent:
             "num_terminations": self.num_terminations,
             "num_option_switches": self.num_option_switches,
         }
+    
+    # Here below functions for saving and loading
+    def state_dict(self):
+        """Return a dictionary with all trainable components (high-level + low-level) and useful run state."""
+        return {
+            # High-level networks + optimizers
+            "option_value": self.option_value.state_dict(),
+            "option_value_targ": self.option_value_targ.state_dict(),
+            "option_value_opt": self.option_value_opt.state_dict(),
+            "termination": self.termination.state_dict(),
+            "termination_opt": self.termination_opt.state_dict(),
+
+            # Low-level agent (DDPG/TD3)
+            "low_level": self.low_level.state_dict(),
+
+            # Runtime state 
+            "current_option": self.current_option,
+            "option_steps": int(self.option_steps),
+            "num_terminations": int(self.num_terminations),
+            "num_option_switches": int(self.num_option_switches),
+
+            # Hyperparameters (not strictly needed to load weights, but useful)
+            "delib_cost": float(self.delib_cost),
+            "eps_option": float(self.eps_option),
+            "terminate_deterministic": bool(self.terminate_deterministic),
+            "min_option_steps": int(self.min_option_steps),
+            "tau": float(self.tau),
+        }
+    
+    def load_state_dict(self, sd):
+        """Load weights (and optimizer states) from a state dict produced by state_dict()."""
+        self.option_value.load_state_dict(sd["option_value"])
+        self.option_value_targ.load_state_dict(sd["option_value_targ"])
+        self.option_value_opt.load_state_dict(sd["option_value_opt"])
+
+        self.termination.load_state_dict(sd["termination"])
+        self.termination_opt.load_state_dict(sd["termination_opt"])
+
+        self.low_level.load_state_dict(sd["low_level"])
+
+        # restore runtime state (optional)
+        self.current_option = sd.get("current_option", self.current_option)
+        self.option_steps = int(sd.get("option_steps", self.option_steps))
+        self.num_terminations = int(sd.get("num_terminations", self.num_terminations))
+        self.num_option_switches = int(sd.get("num_option_switches", self.num_option_switches))
+
+        # restore hyperparameters if present (optional)
+        if "delib_cost" in sd:
+            self.delib_cost = float(sd["delib_cost"])
+        if "eps_option" in sd:
+            self.eps_option = float(sd["eps_option"])
+        if "terminate_deterministic" in sd:
+            self.terminate_deterministic = bool(sd["terminate_deterministic"])
+        if "min_option_steps" in sd:
+            self.min_option_steps = int(sd["min_option_steps"])

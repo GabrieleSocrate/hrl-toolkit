@@ -224,3 +224,42 @@ class TD3:
         actor_loss_mean = float(np.mean(policy_loss)) if len(policy_loss) > 0 else None
 
         return critic_loss_mean, actor_loss_mean, did_actor_update
+    
+    # Here below functions for saving and loadings
+    def state_dict(self):
+        """Return a dictionary with all trainable components."""
+        return {
+            "actor": self.actor.state_dict(),
+            "actor_targ": self.actor_targ.state_dict(),
+            "critic1": self.critic1.state_dict(),
+            "critic2": self.critic2.state_dict(),
+            "critic1_targ": self.critic1_targ.state_dict(),
+            "critic2_targ": self.critic2_targ.state_dict(),
+            "actor_opt": self.actor_opt.state_dict(),
+            "critic1_opt": self.critic1_opt.state_dict(),
+            "critic2_opt": self.critic2_opt.state_dict(),
+            "n_critic_updates": int(self._n_critic_updates),
+            # useful metadata (not strictly needed to load weights)
+            "gamma": self.gamma,
+            "tau": self.tau,
+            "policy_noise": self.policy_noise,
+            "noise_clip": self.noise_clip,
+            "policy_delay": self.policy_delay,
+            "num_options": self.num_options,
+            "obs_dim": self.obs_dim,
+            "act_dim": self.act_dim,
+            "act_limit": self.act_limit,
+        }    
+
+    def load_state_dict(self, sd):
+        """Load weights (and optimizer states) from a state dict produced by state_dict()."""
+        self.actor.load_state_dict(sd["actor"])
+        self.actor_targ.load_state_dict(sd["actor_targ"])
+        self.critic1.load_state_dict(sd["critic1"])
+        self.critic2.load_state_dict(sd["critic2"])
+        self.critic1_targ.load_state_dict(sd["critic1_targ"])
+        self.critic2_targ.load_state_dict(sd["critic2_targ"])
+        self.actor_opt.load_state_dict(sd["actor_opt"])
+        self.critic1_opt.load_state_dict(sd["critic1_opt"])
+        self.critic2_opt.load_state_dict(sd["critic2_opt"])
+        self._n_critic_updates = int(sd.get("n_critic_updates", 0))

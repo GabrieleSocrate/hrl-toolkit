@@ -4,9 +4,12 @@ import torch
 import os
 import csv
 import matplotlib.pyplot as plt
+from datetime import datetime
+import json
+import sys
+import shlex
 
-
-from utils import set_seed, make_env
+from utils import set_seed, make_env, save_plots
 from experience_replay import ReplayBuffer
 from ddpg import DDPG
 from td3 import TD3
@@ -24,106 +27,29 @@ def get_noise_std(ep):
     else:
         return 0.01
 
-###################################
-# Modifiche per grafici  
-def moving_average(x, window=50):
+def save_checkpoint(run_dir, agent, t, episodes, total_actor_updates_seen, prev_cum_terminations, prev_cum_switches, save_last=False):
+    """Save a checkpoint WITHOUT overwriting previous checkpoints.
+    If save_last=True, also writes/overwrites checkpoints/last.pt (optional convenience).
     """
-    Return a list with the moving average of x using a fixed window size.
-    Example: window=3 -> [avg(x[0:3]), avg(x[1:4]), ...]
-    """
-    x = list(x)
+    ckpt_dir = os.path.join(run_dir, "checkpoints")
+    os.makedirs(ckpt_dir, exist_ok=True)
 
-    # Not enough points -> no moving average
-    if len(x) < window:
-        return []
+    payload = {
+        "agent": agent.state_dict(),
+        "t": int(t),
+        "episodes": int(episodes),
+        "total_actor_updates_seen": int(total_actor_updates_seen),
+        "prev_cum_terminations": int(prev_cum_terminations),
+        "prev_cum_switches": int(prev_cum_switches),
+    }
 
-    averages = []
+    path = os.path.join(ckpt_dir, f"ckpt_ep{episodes:05d}_t{t:07d}.pt")
+    torch.save(payload, path)
 
-    # For each window of length 'window', compute its mean
-    for i in range(len(x) - window + 1):
-        chunk = x[i : i + window]          # take window values
-        avg = sum(chunk) / window          # compute average
-        averages.append(avg)
+    if save_last:
+        torch.save(payload, os.path.join(ckpt_dir, "last.pt"))
 
-    return averages
-
-def save_plots(run_dir, rows, ma_window=50):
-    if not rows:
-        print("No episode rows to plot.")
-        return
-
-    episodes = [r["episode"] for r in rows]
-    ep_return = [r["ep_return"] for r in rows]
-
-    # 1) Return + moving average
-    plt.figure()
-    plt.plot(episodes, ep_return)
-    ma = moving_average(ep_return, window=ma_window)
-    if len(ma) > 0:
-        # moving average is shorter -> align it to the end
-        plt.plot(episodes[-len(ma):], ma)
-    plt.title("Episode Return")
-    plt.xlabel("Episode")
-    plt.ylabel("Return")
-    plt.savefig(os.path.join(run_dir, "return.png"), dpi=150, bbox_inches="tight")
-    plt.close()
-
-    # 2) Losses (NaN when missing)
-    def col(name):
-        out = []
-        for r in rows:
-            v = r.get(name, None)
-            out.append(np.nan if v is None else float(v))
-        return out
-
-    plt.figure()
-    plt.plot(episodes, col("critic_loss"))
-    plt.plot(episodes, col("actor_loss"))
-    plt.plot(episodes, col("optv_loss"))
-    plt.plot(episodes, col("term_loss"))
-    plt.title("Losses (may be sparse / NaN when not updated)")
-    plt.xlabel("Episode")
-    plt.ylabel("Loss")
-    plt.legend(["critic", "actor", "optv", "term"])
-    plt.savefig(os.path.join(run_dir, "losses.png"), dpi=150, bbox_inches="tight")
-    plt.close()
-
-    # 3) HRL stats per episode
-    plt.figure()
-    plt.plot(episodes, [r["terminations"] for r in rows])
-    plt.plot(episodes, [r["switches"] for r in rows])
-    plt.title("HRL stats per episode")
-    plt.xlabel("Episode")
-    plt.ylabel("Count")
-    plt.legend(["terminations", "switches"])
-    plt.savefig(os.path.join(run_dir, "hrl_stats.png"), dpi=150, bbox_inches="tight")
-    plt.close()
-
-    # 4) Average option duration per episode
-    plt.figure()
-    avg_term = col("avg_term_steps")
-
-    # allineamento corretto: prendo solo (ep, val) validi
-    ep_valid = [ep for ep, v in zip(episodes, avg_term) if not np.isnan(v)]
-    val_valid = [v  for v  in avg_term if not np.isnan(v)]
-
-    # plot solo dei punti validi (niente “linea a buchi”)
-    plt.plot(ep_valid, val_valid)
-
-    ma2 = moving_average(val_valid, window=ma_window)
-    if len(ma2) > 0:
-        plt.plot(ep_valid[-len(ma2):], ma2)
-
-    plt.title("Avg option duration at termination (mean TERM EVENT) per episode")
-    plt.xlabel("Episode")
-    plt.ylabel("Steps")
-    plt.legend(["avg_term_steps", "moving average"])
-    plt.savefig(os.path.join(run_dir, "avg_option_duration_term.png"), dpi=150, bbox_inches="tight")
-    plt.close()
-
-
-####################################
-
+    return path
 
 def train(args):
     set_seed(args.seed)
@@ -179,6 +105,38 @@ def train(args):
 
     buffer = ReplayBuffer(max_size=args.buffer_size)
 
+    #########################################
+    # Modifiche per grafici
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_name = f"{args.env}_{algo}_seed{args.seed}_{timestamp}"
+    run_dir = os.path.join(args.runs_dir, run_name)
+    os.makedirs(run_dir, exist_ok=True)
+
+    # Save run configuration for reproducibility
+    with open(os.path.join(run_dir, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=2)
+
+    # Save the exact command line used for this run (associated to this run_dir)
+    # This is useful when you look at plots and want to remember how you launched the run.
+    cmd_list = sys.argv[:]  # raw argv list
+    cmd_str = " ".join(shlex.quote(x) for x in cmd_list)
+
+    with open(os.path.join(run_dir, "cmd.txt"), "w", encoding="utf-8") as f:
+        f.write(cmd_str + "\n")
+
+    with open(os.path.join(run_dir, "cmd.json"), "w", encoding="utf-8") as f:
+        json.dump({"argv": cmd_list, "cmd": cmd_str}, f, indent=2)
+
+    csv_path = os.path.join(run_dir, "episodes.csv")
+    csv_file = open(csv_path, "w", newline="")
+    csv_writer = csv.DictWriter(csv_file, fieldnames=[
+        "episode","t_step","ep_return","ep_len",
+        "critic_loss","actor_loss","optv_loss","term_loss",
+        "terminations","switches","avg_term_steps"
+    ])
+    csv_writer.writeheader()
+    ###################################
+
     obs, info = env.reset(seed=args.seed)
     agent.reset(obs)  # pick an initial option at the start of episode
 
@@ -186,33 +144,6 @@ def train(args):
     episodes = 0
 
     total_actor_updates_seen = 0
-
-    ###################################
-    # Modifiche per grafici
-    # ---- minimal logging to CSV + plots ----
-    run_name = f"{args.env}_{algo}_seed{args.seed}"
-    run_dir = os.path.join("runs", run_name)
-    os.makedirs(run_dir, exist_ok=True)
-
-    csv_path = os.path.join(run_dir, "episodes.csv")
-    csv_file = open(csv_path, "w", newline="")
-    csv_writer = csv.DictWriter(
-        csv_file,
-        fieldnames=[
-            "episode",
-            "t",
-            "ep_len",
-            "ep_return",
-            "critic_loss",
-            "actor_loss",
-            "optv_loss",
-            "term_loss",
-            "terminations",
-            "switches",
-            "avg_term_steps",
-        ],
-    )
-    csv_writer.writeheader()
 
     episode_rows = []
     last_critic_loss, last_actor_loss = None, None
@@ -224,7 +155,6 @@ def train(args):
 
     ep_term_steps_sum = 0
     ep_term_steps_count = 0
-    ################################################
 
     for t in range(args.total_steps):
         noise_std = get_noise_std(episodes)
@@ -360,7 +290,7 @@ def train(args):
 
             row = {
                 "episode": episodes,
-                "t": t,
+                "t_step": t,
                 "ep_len": ep_len,
                 "ep_return": float(ep_return),
                 "critic_loss": last_critic_loss,
@@ -387,6 +317,20 @@ def train(args):
     env.close()
 
     csv_file.close()
+
+    # Save final checkpoint (unique filename, so it won't overwrite previous ones)
+    ckpt_path = save_checkpoint(
+        run_dir=run_dir,
+        agent=agent,
+        t=t,
+        episodes=episodes,
+        total_actor_updates_seen=total_actor_updates_seen,
+        prev_cum_terminations=prev_cum_terminations,
+        prev_cum_switches=prev_cum_switches,
+        save_last=args.save_last,
+    )
+    print("Saved final checkpoint:", ckpt_path)
+
     save_plots(run_dir, episode_rows, ma_window=50)
     print("Saved logs to:", csv_path)
     print("Saved plots to:", run_dir)
@@ -417,6 +361,9 @@ if __name__ == "__main__":
     p.add_argument("--log_every", type=int, default=500)
     p.add_argument("--print_actor_every", type=int, default=200) 
     p.add_argument("--min_option_steps", type=int, default=50) # each option has to last for at least 50 steps then it can be changed
+    p.add_argument("--runs_dir", type=str, default="runs")
+    p.add_argument("--save_last", action="store_true") # optional: also write checkpoints/last.pt (this overwrites last.pt)
+ 
  
 
     args = p.parse_args()

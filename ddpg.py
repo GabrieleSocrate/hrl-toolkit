@@ -212,3 +212,31 @@ class DDPG:
         actor_loss_mean = float(np.mean(policy_loss)) if len(policy_loss) > 0 else 0.0
 
         return critic_loss_mean, actor_loss_mean
+    
+    # Here below functions for saving and loading
+    def state_dict(self,):
+        """Return a dictionary with all trainable components"""
+        return {
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "actor_targ": self.actor_targ.state_dict(),
+            "critic_targ": self.critic_targ.state_dict(),
+            "actor_opt": self.actor_opt.state_dict(),
+            "critic_opt": self.critic_opt.state_dict(),
+            # useful metadata (not strictly needed to load weights)
+            "gamma": self.gamma,
+            "tau": self.tau,
+            "num_options": self.num_options,
+            "obs_dim": self.obs_dim,
+            "act_dim": self.act_dim,
+            "act_limit": self.act_limit,
+        }
+
+    def load_state_dict(self, sd):
+        """Load weights from a state dict produced by state_dict()."""
+        self.actor.load_state_dict(sd["actor"])
+        self.critic.load_state_dict(sd["critic"])
+        self.actor_targ.load_state_dict(sd["actor_targ"])
+        self.critic_targ.load_state_dict(sd["critic_targ"])
+        self.actor_opt.load_state_dict(sd["actor_opt"])
+        self.critic_opt.load_state_dict(sd["critic_opt"])

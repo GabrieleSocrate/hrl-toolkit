@@ -1,4 +1,4 @@
-1) implementare deliberation cost 
+1) modificare train per far in modo che si salvino i pesi delle reti mettendo data e ora, runnare da linea di comando e salvare grafici in cartelle con data e ora associate ai pesi
 2) no rete per scelta policy ma calcolo Q(s, o) per ciascuna opzione e poi pigreco = argmax(Q(s, o)), po calcoli advantage se negativo aumenta prob di terminazione.
 
 
