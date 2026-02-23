@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import os
 import csv
-import matplotlib.pyplot as plt
 from datetime import datetime
 import json
 import sys
@@ -100,8 +99,10 @@ def train(args):
         hidden=args.hidden,
         eps_option=args.eps_option,
         terminate_deterministic=args.terminate_deterministic,
-        min_option_steps = args.min_option_steps
+        min_option_steps = args.min_option_steps,
     )
+
+    agent.delib_cost = args.delib_cost
 
     buffer = ReplayBuffer(max_size=args.buffer_size)
 
@@ -363,7 +364,7 @@ if __name__ == "__main__":
     p.add_argument("--min_option_steps", type=int, default=50) # each option has to last for at least 50 steps then it can be changed
     p.add_argument("--runs_dir", type=str, default="runs")
     p.add_argument("--save_last", action="store_true") # optional: also write checkpoints/last.pt (this overwrites last.pt)
- 
+    p.add_argument("--delib_cost", type=float, default=0.5)  # deliberation cost (high-level)
  
 
     args = p.parse_args()
