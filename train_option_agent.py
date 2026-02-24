@@ -339,7 +339,7 @@ def train(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--env", type=str, default="Pendulum-v1")
+    p.add_argument("--env", type=str, default="LunarLanderContinuous-v3")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--total_steps", type=int, default=500000)
