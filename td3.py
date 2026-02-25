@@ -177,7 +177,7 @@ class TD3:
                 target_Q_next = torch.min(target_Q_next1, target_Q_next2)
 
                 # Bellman target
-                target_Q = reward + self.gamma *  target_Q_next # DA MODIFICARE
+                target_Q = reward + self.gamma *  target_Q_next * (1 - done) # Here done is just terminated (done = terminated in buffer, see train_option_agent file line 170)
 
             # current Q estimates (two critics)
             current_Q1 = self.critic1(state, action)

@@ -167,10 +167,11 @@ def train(args):
         terminated is True if the episodes finishes due to goal reach (always false)
         truncated is True if the episode is forced to terminate (True after 200 step)
         """
-        done = bool(terminated or truncated) # I need bool for the condition under here
+        episode_done = bool(terminated or truncated) # I need bool for the condition under here
+        terminal_float = float(terminated) # I separate temrinated form truncated for Bellman update
         ##################
         # Modifica debug
-        if did_terminate and (term_steps is not None) and (not done):
+        if did_terminate and (term_steps is not None) and (not episode_done):
             ep_term_steps_sum += int(term_steps)
             ep_term_steps_count += 1
         ##################
@@ -179,8 +180,7 @@ def train(args):
         We also want the deliberation cost to affect the replay buffer reward:
         If we terminated the option and the episode is not ending , we pay a cost
         """
-        done_float = float(done)
-        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - done_float)
+        reward_eff = float(reward) - float(did_terminate) * float(agent.delib_cost) * (1.0 - terminal_float)
 
         # Store HRL transition 
         buffer.push(
@@ -188,7 +188,7 @@ def train(args):
             action=action,
             reward=reward_eff,
             next_obs=next_obs,
-            done=done_float,
+            done=terminal_float,
             option=option,
             terminated=float(did_terminate),
         )
@@ -268,7 +268,7 @@ def train(args):
                     f" | term_loss={term_loss_str}"
                 )
 
-        if done:
+        if episode_done:
             episodes += 1
             print(f"ep {episodes} done | len={ep_len} | return={ep_return:.2f} | t={t}")
 

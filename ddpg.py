@@ -168,8 +168,8 @@ class DDPG:
             with torch.no_grad():
                 next_action = self.actor_targ(next_state) # action in the next state obtained using actor target
                 target_Q_next = self.critic_targ(next_state, next_action) # use critic target to estimate the Q' value of the pair (next_state, next_action)
-                target_Q = reward + self.gamma * target_Q_next # I compute target Q using Bellman equation
-                # DA MODIFICARE
+                target_Q = reward + self.gamma * target_Q_next * (1 - done) # I compute target Q using Bellman equation
+                # Here done is just terminated (done = terminated in buffer, see train_option_agent file line 170)
 
             # current Q estimate
             current_Q = self.critic(state, action)
