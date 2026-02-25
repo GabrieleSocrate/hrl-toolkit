@@ -100,6 +100,8 @@ def train(args):
         eps_option=args.eps_option,
         terminate_deterministic=args.terminate_deterministic,
         min_option_steps = args.min_option_steps,
+        optv_lr = args.optv_lr,
+        term_lr = args.term_lr
     )
 
     agent.delib_cost = args.delib_cost
@@ -349,8 +351,10 @@ if __name__ == "__main__":
     p.add_argument("--update_iteration", type=int, default=1)     
     p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--tau", type=float, default=0.005)
-    p.add_argument("--actor_lr", type=float, default=1e-3)
-    p.add_argument("--critic_lr", type=float, default=1e-3)
+    p.add_argument("--actor_lr", type=float, default=1e-3) # actor lr
+    p.add_argument("--critic_lr", type=float, default=1e-3) # critic lr
+    p.add_argument("--optv_lr", type=float, default=1e-3)   # option-value lr
+    p.add_argument("--term_lr", type=float, default=1e-4)   # termination lr 
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--algo", type=str, default="ddpg", choices=["ddpg", "td3"])
     p.add_argument("--policy_noise", type=float, default=0.2)

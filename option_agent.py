@@ -23,7 +23,9 @@ class OptionAgent:
         hidden = 256,
         eps_option = 0.0,
         terminate_deterministic = False,
-        min_option_steps = 1
+        min_option_steps = 1,
+        optv_lr = 1e-3,
+        term_lr = 1e-4
     ):
         """
         obs_dim: state dimension
@@ -51,7 +53,7 @@ class OptionAgent:
             p.requires_grad = False
         
         # We initialize the optimizer
-        self.option_value_opt = torch.optim.Adam(self.option_value.parameters(), lr = 1e-3)
+        self.option_value_opt = torch.optim.Adam(self.option_value.parameters(), lr = optv_lr)
 
         # Loss
         self.mse = nn.MSELoss()
@@ -60,7 +62,7 @@ class OptionAgent:
         self.termination = Termination(obs_dim, num_options, hidden=hidden).to(self.device)
 
         # We initialize the optimizer
-        self.termination_opt = torch.optim.Adam(self.termination.parameters(), lr = 1e-4)
+        self.termination_opt = torch.optim.Adam(self.termination.parameters(), lr = term_lr)
 
         # DELIBERATION COST
         # Adding +c inside the termination update discourages switching frequently 
