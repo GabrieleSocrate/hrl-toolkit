@@ -103,7 +103,7 @@ def save_plots(run_dir, rows, ma_window=50):
     plt.plot(episodes, col("actor_loss"))
     plt.plot(episodes, col("optv_loss"))
     plt.plot(episodes, col("term_loss"))
-    plt.title("Losses (may be sparse / NaN when not updated)")
+    plt.title("Losses")
     plt.xlabel("Episode")
     plt.ylabel("Loss")
     plt.legend(["critic", "actor", "optv", "term"])
