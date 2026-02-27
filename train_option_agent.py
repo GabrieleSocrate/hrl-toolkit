@@ -19,12 +19,12 @@ from option_agent import OptionAgent
 def get_noise_std(ep):
     """At the beginning the noise will be high (exploration),
     then we decrease it (more exploitation)."""
-    if ep < 1000:
+    if ep < 500: # prima era 1000
         return 0.5
-    elif ep < 1500:
+    elif ep < 800: # prima era 1500
         return 0.1
     else:
-        return 0.01
+        return 0.01 
 
 def save_checkpoint(run_dir, agent, t, episodes, total_actor_updates_seen, prev_cum_terminations, prev_cum_switches, save_last=False):
     """Save a checkpoint WITHOUT overwriting previous checkpoints.
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     p.add_argument("--actor_lr", type=float, default=1e-3) # actor lr
     p.add_argument("--critic_lr", type=float, default=1e-3) # critic lr
     p.add_argument("--optv_lr", type=float, default=1e-3)   # option-value lr
-    p.add_argument("--term_lr", type=float, default=1e-4)   # termination lr 
+    p.add_argument("--term_lr", type=float, default=1e-3)   # termination lr 
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--algo", type=str, default="ddpg", choices=["ddpg", "td3"])
     p.add_argument("--policy_noise", type=float, default=0.2)

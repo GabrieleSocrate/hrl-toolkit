@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 class Actor(nn.Module):
     """Actor takes an observation (state) from the enviroment and produce an action"""
-    def __init__(self, obs_dim, act_dim, act_limit, hidden = 256):
+    def __init__(self, obs_dim, act_dim, act_limit, hidden = 64): # MODIFICA: cambiato da 256 a 64
         super().__init__()
         self.act_limit = float(act_limit) # in the case of pendolum act_limit is 2 since action space is between -2 and 2
         self.affine1 = nn.Linear(obs_dim, hidden)
@@ -28,7 +28,7 @@ class Actor(nn.Module):
     
 class Critic(nn.Module):
     """Critic takes (obs, action) and return Q(obs, action), so how good is that action in sta state (observation)"""
-    def __init__(self, obs_dim, act_dim, hidden = 256):
+    def __init__(self, obs_dim, act_dim, hidden = 64):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.ln1 = nn.LayerNorm(hidden)
@@ -53,7 +53,7 @@ class Critic(nn.Module):
 
 """Now we create e network to estimate the Q value Q(s, o) for all the options in each state"""
 class OptionValue(nn.Module):
-    def __init__(self, obs_dim, num_options, hidden = 256):
+    def __init__(self, obs_dim, num_options, hidden = 64):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.ln1 = nn.LayerNorm(hidden)
@@ -73,7 +73,7 @@ class OptionValue(nn.Module):
 class Termination(nn.Module):
     """This is the termination function beta(s, o): probability of terminating option o in state s
     The output will be K logits so each logit is how likely the respective option will end"""
-    def __init__(self, obs_dim, num_options, hidden = 256):
+    def __init__(self, obs_dim, num_options, hidden = 64):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.affine2 = nn.Linear(hidden, hidden)
