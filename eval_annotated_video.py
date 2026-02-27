@@ -126,6 +126,9 @@ def main(args):
 
         if prev_option is None:
             prev_option = option
+        if did_terminate:
+            print(f"[TERM] t={t} | option(after)={option} | term_steps={term_steps}")
+
         if option != prev_option:
             print(f"[SWITCH] t={t} {prev_option} -> {option} | did_terminate={did_terminate} | option_steps={term_steps}")
             prev_option = option
@@ -134,7 +137,7 @@ def main(args):
         done = terminated or truncated
 
         frame = env.render()  # RGB array
-        frame = put_text(frame, f"Option: {int(option)} | t={t} | r={reward:+.2f}")
+        frame = put_text(frame, f"Option: {int(option)} | term={int(did_terminate)} | term_steps={term_steps} | t={t} | r={reward:+.2f}")
         writer.append_data(frame)
 
         obs = next_obs
@@ -161,7 +164,7 @@ if __name__ == "__main__":
     p.add_argument("--hidden", type=int, default=256)
 
     p.add_argument("--terminate_deterministic", action="store_true")
-    p.add_argument("--min_option_steps", type=int, default=1)
+    p.add_argument("--min_option_steps", type=int, default=0)
     p.add_argument("--delib_cost", type=float, default=0.5)
 
     p.add_argument("--gamma", type=float, default=0.99)
