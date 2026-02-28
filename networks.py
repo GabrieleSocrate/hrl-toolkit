@@ -53,7 +53,7 @@ class Critic(nn.Module):
 
 """Now we create e network to estimate the Q value Q(s, o) for all the options in each state"""
 class OptionValue(nn.Module):
-    def __init__(self, obs_dim, num_options, hidden = 64):
+    def __init__(self, obs_dim, num_options, hidden = 256):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.ln1 = nn.LayerNorm(hidden)
@@ -73,7 +73,7 @@ class OptionValue(nn.Module):
 class Termination(nn.Module):
     """This is the termination function beta(s, o): probability of terminating option o in state s
     The output will be K logits so each logit is how likely the respective option will end"""
-    def __init__(self, obs_dim, num_options, hidden = 64):
+    def __init__(self, obs_dim, num_options, hidden = 256):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.affine2 = nn.Linear(hidden, hidden)
