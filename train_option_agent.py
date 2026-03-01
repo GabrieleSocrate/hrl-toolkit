@@ -69,7 +69,7 @@ def train(args):
             tau=args.tau,
             actor_lr=args.actor_lr,
             critic_lr=args.critic_lr,
-            hidden=args.hidden,
+            hidden=args.hidden_low,
             num_options = args.num_options
         )
     elif algo == "td3":
@@ -82,7 +82,7 @@ def train(args):
             tau=args.tau,
             actor_lr=args.actor_lr,
             critic_lr=args.critic_lr,
-            hidden=args.hidden,
+            hidden=args.hidden_low,
             policy_noise=args.policy_noise,
             noise_clip=args.noise_clip,
             policy_delay=args.policy_delay,
@@ -96,7 +96,7 @@ def train(args):
         num_options=args.num_options,
         low_level_agent=low_level,
         device=args.device,
-        hidden=args.hidden,
+        hidden=args.hidden_high,
         eps_option=args.eps_option,
         terminate_deterministic=args.terminate_deterministic,
         min_option_steps = args.min_option_steps,
@@ -355,7 +355,8 @@ if __name__ == "__main__":
     p.add_argument("--critic_lr", type=float, default=1e-3) # critic lr
     p.add_argument("--optv_lr", type=float, default=1e-3)   # option-value lr
     p.add_argument("--term_lr", type=float, default=1e-3)   # termination lr 
-    p.add_argument("--hidden", type=int, default=256)
+    p.add_argument("--hidden_low", type=int, default=256)   # low-level Actor/Critic
+    p.add_argument("--hidden_high", type=int, default=256)  # high-level OptionValue/Termination
     p.add_argument("--algo", type=str, default="ddpg", choices=["ddpg", "td3"])
     p.add_argument("--policy_noise", type=float, default=0.2)
     p.add_argument("--noise_clip", type=float, default=0.5)

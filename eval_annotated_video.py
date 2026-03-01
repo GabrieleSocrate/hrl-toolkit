@@ -53,7 +53,7 @@ def build_agent(obs_dim, act_dim, act_limit, args):
             tau=args.tau,
             actor_lr=args.actor_lr,
             critic_lr=args.critic_lr,
-            hidden=args.hidden,
+            hidden=args.hidden_low,
             num_options=args.num_options,
         )
     else:
@@ -66,7 +66,7 @@ def build_agent(obs_dim, act_dim, act_limit, args):
             tau=args.tau,
             actor_lr=args.actor_lr,
             critic_lr=args.critic_lr,
-            hidden=args.hidden,
+            hidden=args.hidden_low,
             policy_noise=args.policy_noise,
             noise_clip=args.noise_clip,
             policy_delay=args.policy_delay,
@@ -78,7 +78,7 @@ def build_agent(obs_dim, act_dim, act_limit, args):
         num_options=args.num_options,
         low_level_agent=low_level,
         device=args.device,
-        hidden=args.hidden,
+        hidden=args.hidden_high,
         eps_option=0.0,  # eval: no epsilon
         terminate_deterministic=args.terminate_deterministic,
         min_option_steps=args.min_option_steps,
@@ -108,9 +108,14 @@ def main(args):
     agent = build_agent(obs_dim, act_dim, act_limit, args)
     load_checkpoint(agent, args.ckpt, device=args.device)
 
-    out_path = os.path.join(args.out_dir, args.out_name)
+    ###################
+    # --- save video in the SAME run folder (where plots are) ---
+    ckpt_path = args.ckpt
+    checkpoints_dir = os.path.dirname(ckpt_path)   # .../runs/<run_name>/checkpoints
+    run_dir = os.path.dirname(checkpoints_dir)     # .../runs/<run_name>  (plots are here)
+    out_path = os.path.join(run_dir, args.out_name)
     writer = imageio.get_writer(out_path, fps=args.fps)
-
+    ####################
     obs, _ = env.reset(seed=args.seed)
     agent.reset(obs)
 
@@ -161,7 +166,8 @@ if __name__ == "__main__":
     p.add_argument("--algo", type=str, default="td3", choices=["ddpg", "td3"])
     p.add_argument("--num_options", type=int, default=2)
     p.add_argument("--device", type=str, default="cpu")
-    p.add_argument("--hidden", type=int, default=256)
+    p.add_argument("--hidden_low", type=int, default=256)
+    p.add_argument("--hidden_high", type=int, default=256)
 
     p.add_argument("--terminate_deterministic", action="store_true")
     p.add_argument("--min_option_steps", type=int, default=0)

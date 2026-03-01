@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 class Actor(nn.Module):
     """Actor takes an observation (state) from the enviroment and produce an action"""
-    def __init__(self, obs_dim, act_dim, act_limit, hidden = 64): # MODIFICA: cambiato da 256 a 64
+    def __init__(self, obs_dim, act_dim, act_limit, hidden = 256): # MODIFICA: cambiato da 256 a 64
         super().__init__()
         self.act_limit = float(act_limit) # in the case of pendolum act_limit is 2 since action space is between -2 and 2
         self.affine1 = nn.Linear(obs_dim, hidden)
@@ -28,7 +28,7 @@ class Actor(nn.Module):
     
 class Critic(nn.Module):
     """Critic takes (obs, action) and return Q(obs, action), so how good is that action in sta state (observation)"""
-    def __init__(self, obs_dim, act_dim, hidden = 64):
+    def __init__(self, obs_dim, act_dim, hidden = 256):
         super().__init__()
         self.affine1 = nn.Linear(obs_dim, hidden)
         self.ln1 = nn.LayerNorm(hidden)
