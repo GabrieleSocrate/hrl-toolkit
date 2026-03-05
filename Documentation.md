@@ -5,14 +5,28 @@ available in the workspace.  It is intended to help developers navigate the
 hierarchical reinforcement learning (HRL) codebase, understand key classes and
 functions, and see how components interact.
 
+## Purpose of the code
+
 ## Workflow
 
 The code is executed runnin the `train` function.
 
 1. The envirionment is initialized 
 
-2. The low level algorithm is select (Argument passed by the user in the configs)
-    -   Possible choice: DDPG, TD3 
+2. The low level algorithm is select (Argument passed by the user in the configs), and the conseguent low level agent(`set_seed(seed)`) is initialized.
+    -   Possible choice: DDPG, TD3  (Descrivi come funzionano e quali sono i parametri)
+
+3. `agent` is create as an istance of the class `OptionAgent` --> (Dovrebbe essere la classe che si occupa di gestire le opzioni, quando cambiarle e come)
+
+4.  Replay buffer is initalized.
+
+5. The first option and first state are selected randmoly (chiedi conferma)
+
+6. The training loop starts and it is repeated n = `total_steps` numbers of time: 
+
+      7.  The agent is provided with the state(`obs`) and it is asked to select the best action and the best option. 
+
+      8. The action result in a new state of the envirionent and an obtained reward (the reward is augmented with the deliberation cost to take in account costs associated to switching option). 
 
 ---
 
