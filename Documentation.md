@@ -5,30 +5,43 @@ available in the workspace.  It is intended to help developers navigate the
 hierarchical reinforcement learning (HRL) codebase, understand key classes and
 functions, and see how components interact.
 
-## Purpose of the code
+# Purpose of the code
 
-## Workflow
+# Workflow
 
 The code is executed runnin the `train` function.
 
 1. The envirionment is initialized 
 
-2. The low level algorithm is select (Argument passed by the user in the configs), and the conseguent low level agent(`set_seed(seed)`) is initialized.
+2. The low level algorithm is select (Argument passed by the user in the configs), and the conseguent low level agent(`low level`) is initialized.
     -   Possible choice: DDPG, TD3  (Descrivi come funzionano e quali sono i parametri)
 
 3. `agent` is create as an istance of the class `OptionAgent` --> (Dovrebbe essere la classe che si occupa di gestire le opzioni, quando cambiarle e come)
+    - The `low level` algorithm is passed as one of the arguments of the `agent`.
+    - Da quello che ho capito agent si occupa sia del low-level sia del high-level 
 
-4.  Replay buffer is initalized.
+4.  Replay buffer (`buffer`) is initalized.
+    - Spiega che tipo di informazioni salviamo nel replay buffer. (Datatype e contenuto)
 
-5. The first option and first state are selected randmoly (chiedi conferma)
+5. First option and first state are selected randmoly. (chiedi conferma)
 
 6. The training loop starts and it is repeated n = `total_steps` numbers of time: 
 
-      7.  The agent is provided with the state(`obs`) and it is asked to select the best action and the best option. 
+      7.  The agent is provided with the state(`obs`) and it is asked to select the best action and the best option .
+           `action, option, did_terminate, term_steps = agent.act(obs, noise_std=noise_std, greedy_option=False)`
 
-      8. The action result in a new state of the envirionent and an obtained reward (the reward is augmented with the deliberation cost to take in account costs associated to switching option). 
+      8. The action result in a new state of the envirionent and an obtained reward (the reward is augmented with the deliberation cost to take in account costs associated to switching option).
+
+      9. Chiarire meglio la questione terminazione episodio/opzione 
+
+      10. The Replay Buffer is populated with ['obs (state of the env)', 'action', 'reward', 'next_obs', 'done(episode reached the goal(?))', 'option', 'terminate(option terminated(?))']
+
+      11. We the buffer is populated enough --> agent.update()  --> Cosa fa??Quali pesi aggiorna? --> Non mi è chiaro cosa succede subito dopo. 
 
 ---
+
+
+
 
 ## utils.py
 
@@ -66,7 +79,31 @@ Utility helpers used across the project:
 
 Neural network architectures used by both low-level and high-level agents.
 
-### High-Level
+# High-Level
+
+## OptionAgent
+
+This script incorporate the logic of HRL above the continuous RL in low level (DDPG/TD3)
+It's purpose is to choice a discrete option using an "options policy" and deciding when to change the option using a specific termination function.
+
+Everything is handled by the class `OptionAgent`
+
+| Attribute | Meaning  | 
+|----------|----------|
+| obs_dim | state dimension | 
+| num_options| number of discrete options K|
+| low_level_agent | low level RL agent | 
+| device | | 
+| tau |  | 
+| hidden |  | 
+| eps_option | optional epsilon-greedy on option selection |
+| terminate_deterministic | if True, terminate when beta>0.5 instead of sampling Bernoulli | 
+| min_option_steps|  | 
+| optv_lr | | 
+| term_lr |  | 
+
+
+
 
 #### OptionValue
 `OptionValue(input = obs_dim, output =  num_options, hidden=256)`
