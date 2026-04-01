@@ -9,7 +9,7 @@ functions, and see how components interact.
 
 # Workflow
 
-The code is executed runnin the `train` function.
+The model trainign is executed running the `train` function.
 
 1. The envirionment is initialized 
 
@@ -29,6 +29,7 @@ The code is executed runnin the `train` function.
 
       7.  The agent is provided with the state(`obs`) and it is asked to select the best action and the best option .
            `action, option, did_terminate, term_steps = agent.act(obs, noise_std=noise_std, greedy_option=False)`
+           (Scusa ma l'azione non dovrebbe essere influenzata dall'opzione )
 
       8. The action result in a new state of the envirionent and an obtained reward (the reward is augmented with the deliberation cost to take in account costs associated to switching option).
 
@@ -36,7 +37,7 @@ The code is executed runnin the `train` function.
 
       10. The Replay Buffer is populated with ['obs (state of the env)', 'action', 'reward', 'next_obs', 'done(episode reached the goal(?))', 'option', 'terminate(option terminated(?))']
 
-      11. We the buffer is populated enough --> agent.update()  --> Cosa fa??Quali pesi aggiorna? --> Non mi è chiaro cosa succede subito dopo. 
+      11. When the buffer is populated enough --> agent.update()  --> Cosa fa??Quali pesi aggiorna? --> Non mi è chiaro cosa succede subito dopo. 
 
 ---
 
@@ -86,7 +87,9 @@ Neural network architectures used by both low-level and high-level agents.
 This script incorporate the logic of HRL above the continuous RL in low level (DDPG/TD3)
 It's purpose is to choice a discrete option using an "options policy" and deciding when to change the option using a specific termination function.
 
-Everything is handled by the class `OptionAgent`
+Everything is handled by the class `OptionAgent`.
+
+Class Attributes: 
 
 | Attribute | Meaning  | 
 |----------|----------|
@@ -95,12 +98,63 @@ Everything is handled by the class `OptionAgent`
 | low_level_agent | low level RL agent | 
 | device | | 
 | tau |  | 
-| hidden |  | 
+| option_value | OptionaValue Network  |
+| option_value_targ | OptionaValue Target Network | 
+| option_value_opt| Optimizer: Adam by default | 
+| self.mse | MSE loss| 
+| termination  | Termination Network | 
+| delib_cost  | Deliberation Cost | 
 | eps_option | optional epsilon-greedy on option selection |
 | terminate_deterministic | if True, terminate when beta>0.5 instead of sampling Bernoulli | 
-| min_option_steps|  | 
-| optv_lr | | 
-| term_lr |  | 
+| current_option |  | 
+| num_terminations  | | 
+| num_option_switches |  | 
+| min_option_steps  | | 
+
+### `def select_option(self, obs, greedy = False):`
+
+This function is responsible for selecting the option to execute given the current state of the environment.
+If greedy = True: we use argmax over Q(s, o) and select o associated with the highest, else epsilon-greedy on Q-values.
+
+Inside it us used the `option_value` network to calculate the Q values of the current state under different options and then select the option with the highest Q value (greedy) or use epsilon-greedy strategy.
+
+It returns an integer representing the index of the specific option.
+
+
+### `def should_terminate(self, obs, option):`
+
+Decide whether to terminate current option using beta(s,o).
+If `terminate_deterministic` is False the option will terminate with probability beta(s,o), if it true the option will terminate if beta(s,o) > 0.5.
+
+If `terminate_deterministic` is False termination is therefore a binary random event, terminate ∈ {0, 1}, naturally modeled as a Bernoulli random variable.
+
+### `def reset(self, obs=None)`
+
+Call this at the beginning of each episode.
+If obs is given, we immediately pick an option based on obs.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
