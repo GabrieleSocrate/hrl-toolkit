@@ -5,42 +5,125 @@ available in the workspace.  It is intended to help developers navigate the
 hierarchical reinforcement learning (HRL) codebase, understand key classes and
 functions, and see how components interact.
 
-# Purpose of the code
+## Purpose of the code
 
-# Workflow
+This toolkit implements **Hierarchical Reinforcement Learning (HRL)** using the **Option-Critic Architecture**.
 
-The model trainign is executed running the `train` function.
+The code combines two levels of learning:
+1. **High-level policy**: Learns to select discrete **options** (sub-policies/skills) and when to switch between them
+2. **Low-level policy**: Learns to execute continuous actions optimally under a given option
 
-1. The envirionment is initialized 
+The key benefit is that high-level learning can operate on a longer timescale (deciding options less frequently)
+while low-level learning handles rapid decision-making (continuous action control), enabling more efficient learning
+of complex, hierarchical behaviors.
 
-2. The low level algorithm is select (Argument passed by the user in the configs), and the conseguent low level agent(`low level`) is initialized.
-    -   Possible choice: DDPG, TD3  (Descrivi come funzionano e quali sono i parametri)
+## Architecture Overview
 
-3. `agent` is create as an istance of the class `OptionAgent` --> (Dovrebbe essere la classe che si occupa di gestire le opzioni, quando cambiarle e come)
-    - The `low level` algorithm is passed as one of the arguments of the `agent`.
-    - Da quello che ho capito agent si occupa sia del low-level sia del high-level 
+```
+┌─────────────────────────────────────────────────────┐
+│              OptionAgent (High-Level)               │
+│  • Selects discrete options      [OptionValue Net]  │
+│  • Manages option termination    [Termination Net]  │
+│  • Coordinates training            (HRL Logic)      │
+└──────────────────┬──────────────────────────────────┘
+                   │
+        ┌──────────┴──────────┐
+        V                     V
+┌────────────────────────────────────────┐
+│     Low-Level Agent (Continuous RL)    │
+│  • TD3 or DDPG algorithm               │
+│  • State is augmented with option      │
+│  • Learns continuous actions           │
+│  • Uses Actor & Critic networks        │
+└────────────────┬───────────────────────┘
+                 │
+        ┌────────┴────────┐
+        V                 V
+┌──────────────────┐  ┌──────────────────┐
+│   Actor Net      │  │   Critic Net     │
+│ (Action Policy)  │  │ (Value Function) │
+└──────────────────┘  └──────────────────┘
+```
 
-4.  Replay buffer (`buffer`) is initalized.
-    - Spiega che tipo di informazioni salviamo nel replay buffer. (Datatype e contenuto)
+## Supported Low-Level Algorithms
 
-5. First option and first state are selected randmoly. (chiedi conferma)
+- **DDPG** (Deep Deterministic Policy Gradient): Single actor-critic pair, simpler but can be less stable
+- **TD3** (Twin Delayed DDPG): Two critics, delayed actor updates, and policy smoothing - more stable and sample-efficient
 
-6. The training loop starts and it is repeated n = `total_steps` numbers of time: 
+## Training Workflow
 
-      7.  The agent is provided with the state(`obs`) and it is asked to select the best action and the best option .
-           `action, option, did_terminate, term_steps = agent.act(obs, noise_std=noise_std, greedy_option=False)`
-           (Scusa ma l'azione non dovrebbe essere influenzata dall'opzione )
+The HRL training pipeline follows these steps:
 
-      8. The action result in a new state of the envirionent and an obtained reward (the reward is augmented with the deliberation cost to take in account costs associated to switching option).
+### Initialization Phase
 
-      9. Chiarire meglio la questione terminazione episodio/opzione 
+1. **Environment Setup**: Initialize Gymnasium environment (e.g., MuJoCo, Custom)
 
-      10. The Replay Buffer is populated with ['obs (state of the env)', 'action', 'reward', 'next_obs', 'done(episode reached the goal(?))', 'option', 'terminate(option terminated(?))']
+2. **Algorithm Selection**: User specifies low-level algorithm:
+   - Command line argument `--algo {ddpg, td3}`
+   - Instantiate corresponding low-level agent (DDPG or TD3) with hyperparameters
+   - Both algorithms share the same interface
 
-      11. When the buffer is populated enough --> agent.update()  --> Cosa fa??Quali pesi aggiorna? --> Non mi è chiaro cosa succede subito dopo. 
+3. **High-Level Agent**: Create OptionAgent instance (`agent`)
+   - Passes the low-level agent as a component
+   - Initializes OptionValue network (for option selection)
+   - Initializes Termination network (for option switching)
+   - Sets up optimizers and target networks
+
+4. **Replay Buffer**: Initialize ReplayBuffer
+   - Stores transitions: (state, action, reward, next_state, done, **option**, **terminated**)
+   - The option and terminated flags enable HRL-specific learning
+
+### Episode Loop (repeated for multiple episodes)
+
+5. **Episode Reset**: `agent.reset(initial_observation)`
+   - Selects initial option for the episode
+   - An initial state is chosen based on the initial option 
+   - Resets step counters
+
+6. **Interaction Loop** (repeated for T timesteps per episode):
+
+   a. **Option Handling & Action Selection**: `action, option, terminated, term_steps = agent.act(obs, noise_std, greedy_option)`
+      - Checks if current option should terminate using β(s, o) from termination network
+      - If termination: switches to new option via option value network
+      - Low-level agent selects action: augmented_obs = [obs, one_hot(option)]
+      - Returns action, current option, and termination flag
+   
+   b. **Environment Step**: Execute action in environment
+      - Observe: next_state, reward, done (episode terminated)
+      - Handle environment-specific reward shaping
+      - Reward can be augmented with deliberation cost (penalty for switching options)
+   
+   c. **Replay Buffer**: Store transition
+      - `buffer.push(obs, action, reward, next_obs, done, option=option, terminated=terminated)`
+      - Note: `done` indicates episode termination; `terminated` indicates option termination
+   
+   d. **Training Update** (when buffer has enough samples):
+      - `low_level_losses, optv_loss, term_loss = agent.update(buffer, batch_size=256, updates=per_step)`
+      - Updates high-level networks (OptionValue and Termination)
+      - Updates low-level networks (Actor and Critic)
+
+### Key Data Structures
+
+**Replay Buffer Transition:**
+- `obs`: Current state
+- `action`: Action executed
+- `reward`: Reward (may include deliberation cost)
+- `next_obs`: Resulting state
+- `done`: Whether episode ended
+- `option`: Discrete option index (K choices)
+- `terminated`: Whether option terminated via β(s, o)
+
+**Option Value Q(s, o):**
+- Estimates expected return when executing option o in state s
+- Used to select options greedily: o* = argmax_o Q(s, o)
+
+**Termination Probability β(s, o):**
+- Probability that option o terminates in state s ∈ [0, 1]
+- If high: option likely to switch soon
+- If low: option likely to continue
+- Trained to maximize time in good options (high Q-value) and minimize time in bad ones
 
 ---
-
 
 
 
@@ -80,7 +163,95 @@ Utility helpers used across the project:
 
 Neural network architectures used by both low-level and high-level agents.
 
-# High-Level
+All networks use layer normalization and ReLU activations for stability and better gradient flow.
+
+
+### class Actor(nn.Module):
+
+Actor network that maps an augmented observation (state + option) to a continuous action in the valid action space.
+
+**Architecture:**
+- Fully connected layers with layer normalization 
+- Input: augmented observation (obs_dim + option dimension)
+- Output: continuous action scaled to action limits using tanh
+
+**Method: `forward(x)`**
+- Takes a batch of observations `x` of shape (B, obs_dim)
+- Returns actions of shape (B, act_dim) scaled to [-act_limit, act_limit]
+
+**Key Parameters:**
+- `obs_dim`: dimension of the observation space
+- `act_dim`: dimension of the action space
+- `act_limit`: upper/lower bound for valid actions (e.g., 2.0 for pendulum)
+- `hidden`: size of hidden layers (default 256)
+
+
+### class Critic(nn.Module):
+
+Critic network that evaluates the Q-value Q(state, action) estimating how good an action is in a given state.
+
+**Architecture:**
+- Takes both observation and action as input (concatenated after first layer)
+- Two fully connected layers with layer normalization and ReLU
+- Single scalar output representing Q-value
+
+**Method: `forward(x, a)`**
+- Takes observation batch `x` of shape (B, obs_dim) and action batch `a` of shape (B, act_dim)
+- Returns Q-values of shape (B, 1)
+
+**Key Parameters:**
+- `obs_dim`: dimension of the observation space
+- `act_dim`: dimension of the action space
+- `hidden`: size of hidden layers (default 256)
+
+
+### class OptionValue(nn.Module):
+
+High-level network that estimates Q-values for all available options given a state: Q(state, option).
+
+Used by the OptionAgent to select which option to execute based on state.
+
+**Architecture:**
+- Maps observation to Q-values for each option
+- Input: observation (obs_dim)
+- Output: Q-values for all K options (num_options)
+
+**Method: `forward(x)`**
+- Takes observation batch `x` of shape (B, obs_dim)
+- Returns Q-values of shape (B, num_options), one Q-value per option
+
+**Key Parameters:**
+- `obs_dim`: dimension of the observation space
+- `num_options`: number of discrete options (K)
+- `hidden`: size of hidden layers (default 256)
+
+
+### class Termination(nn.Module):
+
+Termination network that outputs the probability of terminating each option in a given state: β(state, option).
+
+Used by OptionAgent to decide when to switch to a different option.
+
+**Architecture:**
+- Maps observation to termination logits for all K options
+- Input: observation (obs_dim)
+- Output: logits for termination probability of each option
+
+**Method: `forward(s)`**
+- Takes observation batch `s` of shape (B, obs_dim)
+- Returns logits of shape (B, num_options) - one logit per option
+
+**Method: `beta(s, option)`**
+- Takes observation batch `s` and a batch of option indices `option`
+- Returns sigmoid-transformed termination probabilities: β ∈ [0, 1]
+- If β is close to 1: option likely to terminate
+- If β is close to 0: option likely to continue
+
+**Key Parameters:**
+- `obs_dim`: dimension of the observation space
+- `num_options`: number of discrete options (K)
+- `hidden`: size of hidden layers (default 256)
+
 
 ## OptionAgent
 
@@ -111,203 +282,412 @@ Class Attributes:
 | num_option_switches |  | 
 | min_option_steps  | | 
 
-### `def select_option(self, obs, greedy = False):`
+### `def select_option(self, obs, greedy=False):`
 
-This function is responsible for selecting the option to execute given the current state of the environment.
-If greedy = True: we use argmax over Q(s, o) and select o associated with the highest, else epsilon-greedy on Q-values.
+Select a discrete option given the current observation using the OptionValue network.
 
-Inside it us used the `option_value` network to calculate the Q values of the current state under different options and then select the option with the highest Q value (greedy) or use epsilon-greedy strategy.
+**Behavior:**
+- Uses the `option_value` network to compute Q(s, o) for all options
+- If `greedy=True`: selects option with highest Q-value using `argmax`
+- If `greedy=False`: uses epsilon-greedy strategy:
+  - With probability `eps_option`: randomly select any option (exploration)
+  - Otherwise: select option with highest Q-value (exploitation)
 
-It returns an integer representing the index of the specific option.
+**Parameters:**
+- `obs`: observation (numpy array or tensor)
+- `greedy`: if True, use deterministic greedy selection; if False, use epsilon-greedy
+
+**Returns:**
+- Integer option index in range [0, num_options)
 
 
 ### `def should_terminate(self, obs, option):`
 
-Decide whether to terminate current option using beta(s,o).
-If `terminate_deterministic` is False the option will terminate with probability beta(s,o), if it true the option will terminate if beta(s,o) > 0.5.
+Determine whether the current option should terminate based on the termination network.
 
-If `terminate_deterministic` is False termination is therefore a binary random event, terminate ∈ {0, 1}, naturally modeled as a Bernoulli random variable.
+Uses the termination function β(s, o) ∈ [0, 1] which predicts the probability of terminating option o in state s.
 
-### `def reset(self, obs=None)`
+**Behavior:**
+- Calls `termination.beta(s, o)` to get termination probability β
+- If `terminate_deterministic=True`: terminates if β > 0.5 (hard threshold)
+- If `terminate_deterministic=False`: samples termination as Bernoulli(β) (stochastic)
 
-Call this at the beginning of each episode.
-If obs is given, we immediately pick an option based on obs.
+**Parameters:**
+- `obs`: observation (numpy array or tensor)
+- `option`: current option index
 
-
-
-
-
-
-
-
+**Returns:**
+- Boolean: True if option should terminate, False otherwise
 
 
+### `def reset(self, obs=None):`
+
+Initialize the agent at the start of a new episode.
+
+**Behavior:**
+- Sets `option_steps` counter to 0
+- Sets `current_option` to None
+- If `obs` is provided: immediately selects a new option using `select_option(obs)`
+  and increments `num_option_switches` (in theory obs will always be provided at episode start)
+
+**Parameters:**
+- `obs`: (optional) initial observation; if provided, an option is selected
+
+**Note:** Call this function at the beginning of each episode before the first `act()` call.
+
+
+### `def act(self, obs, noise_std=None, greedy_option=False):`
+
+Select and execute an action, handling option termination and low-level action selection.
+
+**Process:**
+1. If no option is active (`current_option` is None): select a new option
+2. Check if current option should terminate (only if `option_steps >= min_option_steps`):
+   - If yes: select a new option, reset step counter, set `did_terminate=True`
+3. Call low-level agent to select action: `action = low_level.act(augmented_obs, option, noise_std)`
+4. Increment `option_steps`
+5. Return action and option metadata
+
+
+**Parameters:**
+- `obs`: current observation
+- `noise_std`: exploration noise scale for low-level agent
+- `greedy_option`: if True, use greedy option selection; if False, use epsilon-greedy
+
+**Returns (tuple):**
+- `action`: numpy array of shape (act_dim,) - action to execute in environment
+- `option`: int - the current/active option
+- `did_terminate`: bool - whether the option terminated at this step
+- `term_steps`: int or None - number of steps the terminated option lasted (for monitoring)
+
+**Key Features:**
+- `min_option_steps`: options must run for at least this many steps before terminating
+- Updates counters: `num_terminations`, `num_option_switches`, `option_steps`
+
+
+### `def update(self, replay_buffer, batch_size=256, update_iteration=1):`
+
+Update the high-level (OptionValue and Termination) and low-level networks using samples from the replay buffer.
+
+**High-Level Component - OptionValue Network Update:**
+
+Trains Q(s, o) using TD learning with option-aware targets:
+
+- If option terminates at s': use best next option → target = Q(s', o*)  where o* = argmax_o' Q(s', o')
+- If option continues: use same option → target = Q(s', o)
+
+The TD target incorporates both cases using the termination probability β(s', o):
+$$\text{target} = r + \gamma (1 - \beta(s', o)) \cdot Q(s', o) + \gamma \beta(s', o) \cdot \max_{o'} Q(s', o') \cdot (1 - \text{done})$$
+
+**High-Level Component - Termination Network Update:**
+
+Learns when to switch options by maximizing the advantage-weighted termination:
+
+$$\mathcal{L}_{\text{term}} = \mathbb{E}[\beta(s', o) \cdot (A(s', o) + c)]$$
+
+where:
+- $A(s', o) = Q(s', o) - V(s')$ is an advantage signal (motivation to switch)
+- $V(s') = \max_{o'} Q(s', o')$ is the value of the best next option
+- $c$ is `delib_cost` (penalty for switching) to prevent excessive option changes
+
+**Low-Level Component:**
+
+Calls `low_level_agent.update()` to train the continuous control policy (DDPG/TD3) as usual.
+
+**Parameters:**
+- `replay_buffer`: experience replay buffer with stored transitions
+- `batch_size`: number of samples per update step
+- `update_iteration`: number of update steps per call
+
+**Returns (tuple):**
+- `low_level_out`: output from low-level agent update (losses, etc.)
+- `optv_loss_mean`: mean OptionValue loss across all update iterations
+- `term_loss_mean`: mean Termination loss across all update iterations
+
+**Training Details:**
+- Soft-updates target network: `option_value_targ ← (1-τ)option_value_targ + τ option_value`
+- Gradient clipping applied to termination network (max_norm=1.0)
+- All losses monitored and returned for logging
+
+
+### `def get_stats():`
+
+Return current statistics about the agent's high-level behavior.
+
+**Returns (dictionary):**
+- `current_option`: currently active option index
+- `option_steps`: steps elapsed since current option selection
+- `num_terminations`: total number of option terminations so far
+- `num_option_switches`: total number of option switches (including initial selection)
 
 
 
+## Low-Level Agents 
+
+Low-level agents implement continuous control algorithms (DDPG or TD3) that learn to execute actions within a given option. 
+The key difference from standard DDPG/TD3 is that the state is **augmented** with the current option (concatenated as one-hot encoding), 
+so the policy becomes: `action = π(s_aug) = π([state, one_hot(option)])`.
+
+Both agents follow the same interface:
+- `act(obs, noise_std, option)`: Select action given observation and current option
+- `update(replay_buffer, batch_size, update_iteration)`: Update networks from replay buffer samples
+- `augment_obs(obs, option)`: Concatenate one-hot option encoding to state
 
 
+### class DDPG
+
+Deep Deterministic Policy Gradient (DDPG) is a continuous control RL algorithm.
+
+**Key Components:**
+- **Actor**: Maps augmented state [state, one_hot(option)] to action
+- **Critic**: Maps [state, action, one_hot(option)] to Q-value
+- **Target Networks**: Slowly-updated copies of actor and critic for stability
+- **Experience Replay**: Samples random batches from buffer to break temporal correlations
+
+**Class Attributes:**
+
+| Attribute | Meaning  | 
+|----------|----------|
+| obs_dim | state dimension from environment | 
+| act_dim | action dimension (continuous)  |
+| act_limit | upper/lower bound for actions |
+| num_options | number of discrete options (K) |
+| obs_dim_aug | augmented state dimension = obs_dim + num_options |
+| actor | Actor network |
+| actor_targ | Target actor network (slowly updated) |
+| critic | Critic Q-network |
+| critic_targ | Target critic network (slowly updated) |
+| actor_opt | Adam optimizer for actor |
+| critic_opt | Adam optimizer for critic |
+| tau | soft update rate for target networks |
+| gamma | discount factor (typically 0.99) |
+| device | computation device (CPU or GPU) |
+
+**Method: `augment_obs(obs, option)`**
+- Concatenates one-hot encoded option to the state
+- Input: observation (numpy array or tensor) and option index
+- Output: augmented state [obs, one_hot(option)] of length obs_dim + num_options
+
+**Method: `act(obs, noise_std=0.1, option=None)`**
+- Selects action using the actor network
+- Adds Gaussian noise for exploration (scaled by noise_std)
+- Actions are clipped to valid range [-act_limit, act_limit]
+- Returns action as numpy array of shape (act_dim,)
+
+**Method: `update(replay_buffer, batch_size=256, update_iteration=1)`**
+- Updates actor and critic networks from replay buffer samples
+- For each update iteration:
+  1. Sample random batch from replay buffer
+  2. Compute target Q-value using target actor and target critic
+  3. Update critic to minimize MSE(Q_predicted, Q_target)
+  4. Update actor to maximize Q-value (policy gradient)
+  5. Soft-update target networks: θ_target ← (1-τ)θ_target + τθ
+- Returns critic and actor losses for monitoring
 
 
+### class TD3
 
+Twin Delayed DDPG (TD3) improves upon DDPG with three key modifications to reduce overestimation bias and improve stability.
 
+**Key Differences from DDPG:**
 
+1. **Twin Critics**: Two independent critic networks (Q₁ and Q₂); use minimum in target to reduce overestimation
+2. **Delayed Policy Update**: Update actor less frequently than critics (every `policy_delay` critic updates) for better accuracy
+3. **Target Policy Smoothing**: Add clipped noise to target action for smoother learning
 
+**Class Attributes:**
 
+| Attribute | Meaning  | 
+|----------|----------|
+| obs_dim | state dimension from environment | 
+| act_dim | action dimension (continuous)  |
+| act_limit | upper/lower bound for actions |
+| num_options | number of discrete options (K) |
+| obs_dim_aug | augmented state dimension = obs_dim + num_options |
+| actor | Actor network |
+| actor_targ | Target actor network |
+| critic1, critic2 | Two critic Q-networks to reduce overestimation |
+| critic1_targ, critic2_targ | Target critic networks |
+| actor_opt | Adam optimizer for actor |
+| critic1_opt, critic2_opt | Adam optimizers for critics |
+| tau | soft update rate for target networks |
+| gamma | discount factor (typically 0.99) |
+| policy_noise | noise added to target action for smoothing |
+| noise_clip | bounds for clipped noise |
+| policy_delay | frequency of actor updates (e.g., update actor every 2 critic updates) |
+| _n_critic_updates | counter to track when to update actor |
+| device | computation device (CPU or GPU) |
 
+**Method: `augment_obs(obs, option)`**
+- Concatenates one-hot encoded option to the state
+- Input: observation (numpy array or tensor) and option index
+- Output: augmented state [obs, one_hot(option)] of length obs_dim + num_options
 
+**Method: `act(obs, noise_std=0.1, option=None)`**
+- Selects action using the actor network
+- Adds Gaussian noise for exploration (scaled by noise_std)
+- Actions are clipped to valid range [-act_limit, act_limit]
+- Returns action as numpy array of shape (act_dim,)
 
+**Method: `update(replay_buffer, batch_size=256, update_iteration=1)`**
+- Updates actor and both critic networks from replay buffer samples
+- For each update iteration:
+  1. Sample random batch from replay buffer
+  2. Add smoothing noise to target action and clip it
+  3. Compute target Q-value using **minimum** of both target critics (reduces overestimation)
+  4. Update both critics independently to minimize MSE loss
+  5. **Every policy_delay updates**: Update actor using gradient from critic1
+  6. Soft-update all target networks
+- Returns critic losses, actor losses, and whether actor was updated
+- This delayed update strategy allows critics to stabilize before actor moves
 
+## Replay Buffer
 
-#### OptionValue
-`OptionValue(input = obs_dim, output =  num_options, hidden=256)`
+### class ReplayBuffer
 
-High-level Q-network producing a score for each discrete option, the score of each option is rapresent by the  Q value Q(s, o).
-The network is composed as a classical feed forward nn.
+Buffer for storing and sampling reinforcement learning transitions in both standard RL (DDPG/TD3) 
+and hierarchical RL (Option-Critic) settings.
 
-It takes as input the state and produce as result what is the Q value of that state under different option. 
+Each stored transition includes the option and termination flag to support HRL training.
 
-- How is the loss calulated?
+**Class Attributes:**
 
+| Attribute | Meaning  | 
+|----------|----------|
+| storage | List of tuples, each containing one transition |
+| max_size | Maximum capacity of the buffer (default: 1,000,000) |
+| ptr | Pointer indicating where to write next when buffer is full (circular buffer) |
 
-#### Termination
-`Termination(input = obs_dim, output =  num_options, hidden=256)`
+**Stored Transition Format:**
 
-This network calculate the termination function beta(s, o): probability of terminating option o in state s
-The output will be K logits so each logit is how likely the respective option will end.
+Each transition is a tuple: `(obs, next_obs, action, reward, done, option, terminated)`
 
-It takes as input the state and produce as result what is the the probability of terminating a specific option. 
+- **obs**: np.array of shape (obs_dim,) - current observation/state
+- **next_obs**: np.array of shape (obs_dim,) - next observation/state after action
+- **action**: np.array of shape (act_dim,) - continuous action executed
+- **reward**: float - reward received from environment
+- **done**: float (0.0 or 1.0) - whether episode ended at this step
+- **option**: int or None - the discrete option in use during this transition
+- **terminated**: float (0.0 or 1.0) or None - whether the option terminated at this step due to β(s,o) > threshold
 
-- How is the loss calulated?
+**Method: `push(obs, action, reward, next_obs, done, option=None, terminated=None)`**
 
-### Low-Level 
+Store a single transition in the buffer.
 
-In the low level we implents classical RL algorithms.
-Here the networks used to implements these algorithms. 
+**Parameters:**
+- `obs`: observation (np.array or list of shape (obs_dim,))
+- `action`: action taken (np.array of shape (act_dim,))
+- `reward`: scalar reward
+- `next_obs`: resulting observation (np.array of shape (obs_dim,))
+- `done`: episode termination flag (float or bool)
+- `option`: (optional) discrete option index
+- `terminated`: (optional) option termination flag
 
-#### Actor
-`Actor(obs_dim, act_dim, act_limit, hidden=256)`
+**Behavior:**
+- If buffer is not full: appends new transition
+- If buffer is full: overwrites at position `ptr` and advances `ptr` circularly
+- All inputs are converted to appropriate dtypes (float32 for observations/actions/rewards)
 
-- MLP mapping state inputs to bounded continuous actions.
-- Two hidden layers with ReLU activation and layer normalization.
-- Final `tanh` output scaled by `act_limit`.
+**Method: `sample(batch_size)`**
 
-#### Critic
-`Critic(obs_dim, act_dim, hidden=256)`
+Sample a random batch of transitions from the buffer for training.
 
-- Estimates Q(s,a) values. Incorporates the action after the first hidden
-  layer.
+**Returns (all as numpy arrays):**
+- `state`: shape (B, obs_dim)
+- `next_state`: shape (B, obs_dim)
+- `action`: shape (B, act_dim)
+- `reward`: shape (B, 1)
+- `done`: shape (B, 1) - episode termination flags
+- `option`: shape (B,) as int64, or None if no options were stored
+- `terminated`: shape (B, 1) as float32, or None if no termination flags were stored
 
+**Behavior:**
+- Randomly selects `batch_size` transitions from storage
+- Returns None for `option` if all sampled transitions have option = None
+- Returns None for `terminated` if all sampled transitions have terminated = None
+- All arrays properly shaped for batch processing in neural networks
+
+**Method: `__len__()`**
+
+Returns the current number of transitions in the buffer (not exceeding max_size).
 
 ---
 
-## ddpg.py
+## Key Hyperparameters and Configuration
 
-Deterministic policy gradient algorithm adapted for options.
+### High-Level (Option-Critic) Parameters
 
-- **Augmented states:** the current option is one-hot encoded and concatenated
-  to the state vector.
-- Both actor and critic take the augmented state as input.
+| Parameter | Description | Typical Value |
+|-----------|-------------|----------------|
+| `num_options` | Number of discrete options (K) | 4-8 |
+| `tau` | Soft update rate for target networks | 0.005 |
+| `eps_option` | Epsilon for epsilon-greedy option selection | 0.01-0.1 |
+| `optv_lr` | Learning rate for OptionValue network | 1e-3 |
+| `term_lr` | Learning rate for Termination network | 1e-4 |
+| `delib_cost` | Penalty for switching options | 0.5 |
+| `min_option_steps` | Minimum steps before option can terminate | 1 |
+| `terminate_deterministic` | Use hard threshold (>0.5) vs stochastic termination | False |
 
-### Important methods
+### Low-Level (DDPG/TD3) Parameters
 
-- `augment_obs(obs, option)`: concatenates state and option encoding.
-- `act(obs, noise_std=0.1, option=None)`: returns a (possibly noisy) action.
-- `update(replay_buffer, batch_size=256, update_iteration=1)`: updates actor
-  and critic using standard DDPG steps, then soft-updates target networks.
-- `state_dict()` / `load_state_dict(sd)`: serialization helpers.
+| Parameter | Description | DDPG | TD3 |
+|-----------|-------------|------|-----|
+| `gamma` | Discount factor | 0.99 | 0.99 |
+| `tau` | Soft update rate | 0.005 | 0.005 |
+| `actor_lr` | Actor learning rate | 1e-3 | 1e-3 |
+| `critic_lr` | Critic learning rate | 1e-3 | 1e-3 |
+| `hidden` | Hidden layer size | 256 | 256 |
+| `policy_noise` | Target policy smoothing noise | - | 0.2 |
+| `noise_clip` | Clipping range for noise | - | 0.5 |
+| `policy_delay` | Delayed actor update frequency | - | 2 |
 
----
+### Training Parameters
 
-## td3.py
+| Parameter | Description | Typical Value |
+|-----------|-------------|----------------|
+| `batch_size` | Replay buffer batch size | 256 |
+| `update_iteration` | Updates per environment step | 1-4 |
+| `buffer_size` | Replay buffer capacity | 1,000,000 |
+| `noise_std` | Exploration noise decay | 0.5 → 0.1 → 0.01 (over episodes) |
 
-Twin Delayed DDPG with option-conditioning.
+## Tips for Effective HRL Training
 
-Key TD3 features:
+1. **Option Duration**: Set `min_option_steps` to enforce minimum commitment to each option. This prevents thrashing between options.
 
-1. **Double critics** (`critic1`, `critic2`); target uses the minimum Q-value.
-2. **Delayed policy updates**: actor updated only every `policy_delay`
-   critic steps.
-3. **Target policy smoothing**: noise added to target actions.
+2. **Deliberation Cost**: Tune `delib_cost` to balance option switching vs. exploitation. Higher values discourage frequent switching.
 
-Methods mirror `DDPG` but incorporate the above enhancements.
-Serialization helpers include an actor-update flag.
+3. **Learning Rate**: Set `term_lr` lower than `optv_lr` as termination learning can be noisier with small sample sizes.
 
----
+4. **Algorithm Choice**: 
+   - Use **DDPG** for simpler tasks or when sample efficiency is less critical
+   - Use **TD3** for complex tasks requiring stable, sample-efficient learning
 
-## option_agent.py
+5. **Option Count**: Start with 4-8 options. Too few limits expressiveness; too many can slow learning.
 
-High-level agent managing discrete options over a continuous low-level
-controller (DDPG or TD3).
-
-
-### Networks
-
-- `option_value` (with target copy), estimates QΩ(s,o) for option selection.
-- `termination`, predicting β(s,o) probability of terminating an option.
-
-### State tracking
-
-- `current_option`, `option_steps`, counts for terminations/switches.
-- Exploration via `eps_option`; deliberation cost penalizes switching.
-
-### Key methods
-
-- `select_option(obs, greedy=False)`: epsilon-greedy or greedy option choice.
-- `should_terminate(obs, option)`: sample termination or use deterministic
-  threshold.
-- `act(obs, noise_std=None, greedy_option=False)`: handles termination,
-  switching, and delegates to low-level agent.
-- `update(replay_buffer, batch_size, update_iteration)`: trains both the
-  option-value and termination networks. Returns losses and low-level output.
-
----
-
-## experience_replay.py
-
-Simple replay buffer for RL or HRL with options.
-
-- Stores tuples `(obs, next_obs, action, reward, done, option, terminated)`.
-- `push(...)`: appends or overwrites samples in a circular buffer.
-- `sample(batch_size)`: returns random minibatches, converting missing
-  option/terminated values into `None`.
-
----
-
-## eval_annotated_video.py
-
-Script to run a trained agent and record annotated video.
-
-- Overlays text (option, termination, step, reward) onto frames.
-- Builds environment and agent based on command-line args.
-- Loads checkpoint, runs episode, logs switches/terminations, writes video
-  using `imageio`.
-
----
-
-## train_option_agent.py
-
-Training script for hierarchical option-based RL.
-
-- Configures environment, agent (DDPG/TD3 + OptionAgent), replay buffer,
-  and logging directories.
-- Handles reward modification for deliberation cost.
-- Updates low/high-level networks, logs per-episode statistics and saves
-  configurations and checkpoints.
+6. **Monitoring**: Track:
+   - `num_terminations`: Should increase steadily (options are terminating)
+   - `num_option_switches`: Should show meaningful patterns, not random noise
+   - Option value loss: Should decrease over time
+   - Termination loss: Should stabilize (indicates learned termination behavior)
 
 
-### Utilities
 
-- `get_noise_std(ep)`: schedules exploration noise.
-- `save_checkpoint(run_dir, agent, ...)`: saves snapshots.
-- Command-line parser exposes numerous hyperparameters.
 
----
 
-## Additional Notes
 
-Files under `File Inutili/` are legacy training scripts and agents not required
-for current usage.
 
-This document is intended as a starting point.  For deeper understanding, refer
-to inline comments and class docstrings within each file.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

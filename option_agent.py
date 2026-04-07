@@ -162,6 +162,7 @@ class OptionAgent:
             did_terminate: bool (True if beta terminated the previous option at this step)
         """
         # If first step of episode, select an option
+        #NON E' RIDONDATE? ABBIAMO GIA' UNA RESET ALL'INIZIO DELL'EPISODIO CHE SELEZIONA UN OPZIONE SE NONE, NON BASTA?
         if self.current_option is None:
             self.current_option = self.select_option(obs, greedy=greedy_option)
             self.num_option_switches += 1
