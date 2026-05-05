@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Experiment outputs
+runs/
+grid_runs/
+checkpoints/
+
+# Model/checkpoint files
+*.pt
+*.pth
+*.pkl
+
+# Videos / generated outputs
+*.mp4
+*.avi
+
+# Unused local files
+File inutili/
+
+# OS files
+.DS_Store
+Thumbs.db
